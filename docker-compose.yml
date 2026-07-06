@@ -1,0 +1,147 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fitadmin-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fitadmin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fitadmin}
+      POSTGRES_DB: ${POSTGRES_DB:-fitadmin}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/postgres/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fitadmin} -d ${POSTGRES_DB:-fitadmin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  mongo:
+    image: mongo:7
+    container_name: fitadmin-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-fitadmin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-fitadmin}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-fitadmin_mongo}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./database/mongo/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: fitadmin-auth-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${AUTH_SERVICE_PORT:-3001}
+      DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@gxgym.local}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+
+  gym-service:
+    build:
+      context: .
+      dockerfile: services/gym-service/Dockerfile
+    container_name: fitadmin-gym-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${GYM_SERVICE_PORT:-3002}
+      DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+      BACKUP_DIR: /app/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backups:/app/backups
+    ports:
+      - "3002:3002"
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: services/inventory-service/Dockerfile
+    container_name: fitadmin-inventory-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${INVENTORY_SERVICE_PORT:-3003}
+      DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3003:3003"
+
+  report-service:
+    build:
+      context: .
+      dockerfile: services/report-service/Dockerfile
+    container_name: fitadmin-report-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${REPORT_SERVICE_PORT:-3004}
+      DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
+      MONGO_URL: ${MONGO_URL:-mongodb://fitadmin:fitadmin@mongo:27017/fitadmin_mongo?authSource=admin}
+      MONGO_DATABASE: ${MONGO_DATABASE:-fitadmin_mongo}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    ports:
+      - "3004:3004"
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: fitadmin-api-gateway
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${API_GATEWAY_PORT:-3000}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:3001}
+      GYM_SERVICE_URL: ${GYM_SERVICE_URL:-http://gym-service:3002}
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://inventory-service:3003}
+      REPORT_SERVICE_URL: ${REPORT_SERVICE_URL:-http://report-service:3004}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+    depends_on:
+      - auth-service
+      - gym-service
+      - inventory-service
+      - report-service
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  mongo_data:
