@@ -1,5 +1,5 @@
 const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler, requireAuth, requireRoles } = require('../../../shared/http');
-const { numberEnv } = require('../../../shared/config');
+const { env, numberEnv } = require('../../../shared/config');
 const { query, transaction, waitForPostgres, asNumber } = require('../../../shared/postgres');
 const { formatDate } = require('../../../shared/format');
 
@@ -95,6 +95,10 @@ function mapStoreOrder(row, items = []) {
     status: row.status,
     channel: row.channel,
     total: asNumber(row.total),
+    paymentMethod: row.payment_method || '',
+    paypalOrderId: row.paypal_order_id || '',
+    paypalCaptureId: row.paypal_capture_id || '',
+    paidAt: row.paid_at,
     stockDeductedAt: row.stock_deducted_at,
     paymentId: row.payment_id,
     createdAt: row.created_at,
@@ -133,6 +137,103 @@ function orderCode(id) {
 function normalizeQuantity(value) {
   const quantity = Math.floor(Number(value || 0));
   return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+}
+
+function paypalMode() {
+  return env('PAYPAL_MODE', 'sandbox').toLowerCase() === 'live' ? 'live' : 'sandbox';
+}
+
+function paypalBaseUrl() {
+  return paypalMode() === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+}
+
+function paypalCurrency() {
+  return env('PAYPAL_CURRENCY', 'USD').toUpperCase();
+}
+
+function paypalClientId() {
+  return env('PAYPAL_CLIENT_ID', '');
+}
+
+function paypalClientSecret() {
+  return env('PAYPAL_CLIENT_SECRET', '');
+}
+
+function ensurePaypalConfigured() {
+  if (!paypalClientId() || !paypalClientSecret()) {
+    throw httpError(503, 'PayPal is not configured');
+  }
+}
+
+async function paypalAccessToken() {
+  ensurePaypalConfigured();
+  const credentials = Buffer.from(`${paypalClientId()}:${paypalClientSecret()}`).toString('base64');
+  const response = await fetch(`${paypalBaseUrl()}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: 'grant_type=client_credentials'
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.access_token) {
+    throw httpError(502, 'PayPal access token could not be created', payload);
+  }
+  return payload.access_token;
+}
+
+async function createPaypalCheckoutOrder(order) {
+  const token = await paypalAccessToken();
+  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'PayPal-Request-Id': `${order.code}-create`
+    },
+    body: JSON.stringify({
+      intent: 'CAPTURE',
+      purchase_units: [
+        {
+          reference_id: order.code,
+          invoice_id: order.code,
+          custom_id: String(order.id),
+          description: `Pedido tienda ${order.code} GX GYM`,
+          amount: {
+            currency_code: paypalCurrency(),
+            value: asNumber(order.total).toFixed(2)
+          }
+        }
+      ]
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.id) {
+    throw httpError(502, 'PayPal order could not be created', payload);
+  }
+  return payload;
+}
+
+async function capturePaypalCheckoutOrder(paypalOrderId) {
+  const token = await paypalAccessToken();
+  const response = await fetch(`${paypalBaseUrl()}/v2/checkout/orders/${paypalOrderId}/capture`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'PayPal-Request-Id': `${paypalOrderId}-capture`
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw httpError(502, 'PayPal order could not be captured', payload);
+  }
+  return payload;
+}
+
+function paypalCaptureId(capturePayload) {
+  return capturePayload?.purchase_units?.[0]?.payments?.captures?.[0]?.id || '';
 }
 
 async function resolveOrderItem(client, item) {
@@ -181,7 +282,7 @@ async function resolveOrderItem(client, item) {
   };
 }
 
-const STOCK_DEDUCTING_STATUSES = new Set(['Confirmado', 'Preparado', 'Entregado']);
+const STOCK_DEDUCTING_STATUSES = new Set(['Confirmado', 'Preparado', 'Pagado', 'Entregado']);
 
 async function deductOrderStock(client, items) {
   for (const item of items) {
@@ -256,6 +357,64 @@ function buildStorePaymentObservation(order, items) {
   const lines = items.map(item => `${item.quantity} x ${item.product_name} ($${asNumber(item.unit_price).toFixed(2)})`).join('; ');
   const notes = order.notes ? ` Nota: ${order.notes}` : '';
   return `Pedido tienda ${order.code}. Cliente: ${order.customer_name}. Telefono: ${order.customer_phone}. ${lines}.${notes}`;
+}
+
+async function createStoreOrder(body, options = {}) {
+  const customerName = String(body.customerName || body.name || '').trim();
+  const customerPhone = String(body.customerPhone || body.phone || '').trim();
+  const customerEmail = String(body.customerEmail || body.email || '').trim();
+  const notes = String(body.notes || body.message || '').trim();
+  const items = Array.isArray(body.items) ? body.items : [];
+  const status = options.status || 'Nuevo';
+  const channel = options.channel || body.channel || 'web';
+  const paymentMethod = options.paymentMethod || body.paymentMethod || 'WhatsApp';
+
+  if (!customerName || !customerPhone) {
+    throw httpError(400, 'customerName and customerPhone are required');
+  }
+  if (!items.length) {
+    throw httpError(400, 'At least one item is required');
+  }
+
+  const createdId = await transaction(async client => {
+    const resolvedItems = [];
+    for (const item of items) {
+      resolvedItems.push(await resolveOrderItem(client, item));
+    }
+
+    const total = Number(resolvedItems.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
+    const tempCode = `TMP-${Date.now()}-${Math.round(Math.random() * 1000000)}`;
+    const orderResult = await client.query(
+      `INSERT INTO store_orders
+         (code, customer_name, customer_email, customer_phone, notes, status, channel, total, payment_method)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [tempCode, customerName, customerEmail || null, customerPhone, notes || null, status, channel, total, paymentMethod]
+    );
+    const orderId = orderResult.rows[0].id;
+    const code = orderCode(orderId);
+    await client.query('UPDATE store_orders SET code = $1 WHERE id = $2', [code, orderId]);
+
+    for (const item of resolvedItems) {
+      await client.query(
+        `INSERT INTO store_order_items (order_id, supplement_id, product_name, category, unit_price, quantity, line_total)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          orderId,
+          item.supplement.id,
+          item.supplement.name,
+          item.supplement.category,
+          item.unitPrice,
+          item.quantity,
+          item.lineTotal
+        ]
+      );
+    }
+
+    return orderId;
+  });
+
+  return getStoreOrderOrFail(createdId);
 }
 
 async function settleStoreOrderPayment(client, order, items, method) {
@@ -441,59 +600,97 @@ app.delete('/inventory/supplements/:id', asyncHandler(async (req, res) => {
   res.status(204).send();
 }));
 
-app.post('/public/store-orders', asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const customerName = String(body.customerName || body.name || '').trim();
-  const customerPhone = String(body.customerPhone || body.phone || '').trim();
-  const customerEmail = String(body.customerEmail || body.email || '').trim();
-  const notes = String(body.notes || body.message || '').trim();
-  const items = Array.isArray(body.items) ? body.items : [];
+app.get('/public/paypal/config', (req, res) => {
+  res.json({
+    enabled: Boolean(paypalClientId() && paypalClientSecret()),
+    clientId: paypalClientId(),
+    currency: paypalCurrency(),
+    mode: paypalMode()
+  });
+});
 
-  if (!customerName || !customerPhone) {
-    throw httpError(400, 'customerName and customerPhone are required');
-  }
-  if (!items.length) {
-    throw httpError(400, 'At least one item is required');
-  }
+app.post('/public/store-orders', requireAuth, asyncHandler(async (req, res) => {
+  const order = await createStoreOrder(req.body || {}, {
+    status: 'Nuevo',
+    channel: 'whatsapp',
+    paymentMethod: 'WhatsApp'
+  });
+  res.status(201).json(order);
+}));
 
-  const createdId = await transaction(async client => {
-    const resolvedItems = [];
-    for (const item of items) {
-      resolvedItems.push(await resolveOrderItem(client, item));
-    }
-
-    const total = Number(resolvedItems.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
-    const tempCode = `TMP-${Date.now()}-${Math.round(Math.random() * 1000000)}`;
-    const orderResult = await client.query(
-      `INSERT INTO store_orders (code, customer_name, customer_email, customer_phone, notes, status, channel, total)
-       VALUES ($1, $2, $3, $4, $5, 'Nuevo', COALESCE($6, 'web'), $7)
-       RETURNING id`,
-      [tempCode, customerName, customerEmail || null, customerPhone, notes || null, body.channel || 'web', total]
-    );
-    const orderId = orderResult.rows[0].id;
-    const code = orderCode(orderId);
-    await client.query('UPDATE store_orders SET code = $1 WHERE id = $2', [code, orderId]);
-
-    for (const item of resolvedItems) {
-      await client.query(
-        `INSERT INTO store_order_items (order_id, supplement_id, product_name, category, unit_price, quantity, line_total)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          orderId,
-          item.supplement.id,
-          item.supplement.name,
-          item.supplement.category,
-          item.unitPrice,
-          item.quantity,
-          item.lineTotal
-        ]
-      );
-    }
-
-    return orderId;
+app.post('/public/paypal/orders', requireAuth, asyncHandler(async (req, res) => {
+  const order = await createStoreOrder(req.body || {}, {
+    status: 'Pago pendiente',
+    channel: 'paypal',
+    paymentMethod: 'PayPal'
   });
 
-  res.status(201).json(await getStoreOrderOrFail(createdId));
+  try {
+    const paypalOrder = await createPaypalCheckoutOrder(order);
+    await query(
+      'UPDATE store_orders SET paypal_order_id = $1, updated_at = NOW() WHERE id = $2',
+      [paypalOrder.id, order.id]
+    );
+    res.status(201).json({
+      paypalOrderId: paypalOrder.id,
+      order: await getStoreOrderOrFail(order.id)
+    });
+  } catch (error) {
+    await query('UPDATE store_orders SET status = $1, updated_at = NOW() WHERE id = $2', ['Cancelado', order.id]).catch(() => undefined);
+    throw error;
+  }
+}));
+
+app.post('/public/paypal/orders/:paypalOrderId/capture', requireAuth, asyncHandler(async (req, res) => {
+  const paypalOrderId = String(req.params.paypalOrderId || '').trim();
+  if (!paypalOrderId) {
+    throw httpError(400, 'paypalOrderId is required');
+  }
+
+  const captured = await transaction(async client => {
+    const orderResult = await client.query(
+      'SELECT * FROM store_orders WHERE paypal_order_id = $1 LIMIT 1 FOR UPDATE',
+      [paypalOrderId]
+    );
+    const order = orderResult.rows[0];
+    if (!order) {
+      throw httpError(404, 'Store order not found for PayPal order');
+    }
+
+    const itemsResult = await client.query('SELECT * FROM store_order_items WHERE order_id = $1 ORDER BY id ASC', [order.id]);
+    if (order.status === 'Pagado' && order.payment_id) {
+      return mapStoreOrder(order, itemsResult.rows.map(mapStoreOrderItem));
+    }
+
+    const paypalCapture = await capturePaypalCheckoutOrder(paypalOrderId);
+    if (paypalCapture.status !== 'COMPLETED') {
+      throw httpError(409, 'PayPal payment was not completed', paypalCapture);
+    }
+
+    if (!order.stock_deducted_at) {
+      await deductOrderStock(client, itemsResult.rows);
+    }
+
+    const paymentId = await settleStoreOrderPayment(client, order, itemsResult.rows, 'PayPal');
+    const captureId = paypalCaptureId(paypalCapture);
+    const updateResult = await client.query(
+      `UPDATE store_orders
+       SET status = 'Pagado',
+           payment_method = 'PayPal',
+           paypal_capture_id = $1,
+           paid_at = NOW(),
+           stock_deducted_at = COALESCE(stock_deducted_at, NOW()),
+           payment_id = $2,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [captureId || null, paymentId, order.id]
+    );
+
+    return mapStoreOrder(updateResult.rows[0], itemsResult.rows.map(mapStoreOrderItem));
+  });
+
+  res.json(captured);
 }));
 
 app.get('/inventory/store-orders', requireAuth, requireRoles('ADMIN', 'RECEPCION'), asyncHandler(async (req, res) => {
@@ -525,7 +722,7 @@ app.get('/inventory/store-orders/:id', requireAuth, requireRoles('ADMIN', 'RECEP
 
 app.patch('/inventory/store-orders/:id/status', requireAuth, requireRoles('ADMIN', 'RECEPCION'), asyncHandler(async (req, res) => {
   const status = String(req.body?.status || '').trim();
-  const allowed = new Set(['Nuevo', 'Contactado', 'Confirmado', 'Preparado', 'Entregado', 'Cancelado']);
+  const allowed = new Set(['Nuevo', 'Contactado', 'Confirmado', 'Preparado', 'Pago pendiente', 'Pagado', 'Entregado', 'Cancelado']);
   if (!allowed.has(status)) {
     throw httpError(400, 'Invalid order status');
   }
@@ -552,7 +749,7 @@ app.patch('/inventory/store-orders/:id/status', requireAuth, requireRoles('ADMIN
     }
 
     let paymentId = order.payment_id || null;
-    if (status === 'Entregado') {
+    if (status === 'Pagado' || status === 'Entregado') {
       paymentId = await settleStoreOrderPayment(client, order, itemsResult.rows, req.body?.paymentMethod || req.body?.method);
     } else if (paymentId) {
       await voidStoreOrderPayment(client, paymentId, status);
@@ -560,13 +757,15 @@ app.patch('/inventory/store-orders/:id/status', requireAuth, requireRoles('ADMIN
 
     const updateResult = await client.query(
       `UPDATE store_orders
-       SET status = $1,
+       SET status = $1::varchar,
            stock_deducted_at = CASE WHEN $2::boolean THEN COALESCE(stock_deducted_at, NOW()) ELSE NULL END,
            payment_id = $4,
+           payment_method = CASE WHEN $5::text <> '' THEN $5::varchar ELSE payment_method END,
+           paid_at = CASE WHEN $1::text IN ('Pagado', 'Entregado') THEN COALESCE(paid_at, NOW()) ELSE NULL END,
            updated_at = NOW()
        WHERE id = $3
        RETURNING *`,
-      [status, shouldDeductStock, order.id, paymentId]
+      [status, shouldDeductStock, order.id, paymentId, req.body?.paymentMethod || req.body?.method || '']
     );
 
     return mapStoreOrder(updateResult.rows[0], itemsResult.rows.map(mapStoreOrderItem));

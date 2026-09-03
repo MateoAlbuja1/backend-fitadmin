@@ -15,7 +15,7 @@ function resolveTarget(path) {
   if (path.startsWith('/auth')) {
     return targets.auth;
   }
-  if (path.startsWith('/inventory') || path.startsWith('/public/supplements') || path.startsWith('/public/store-orders')) {
+  if (path.startsWith('/inventory') || path.startsWith('/public/supplements') || path.startsWith('/public/store-orders') || path.startsWith('/public/paypal')) {
     return targets.inventory;
   }
   if (path.startsWith('/reports') || path.startsWith('/alerts')) {

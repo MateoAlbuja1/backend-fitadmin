@@ -92,6 +92,10 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+      PAYPAL_MODE: ${PAYPAL_MODE:-sandbox}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_CURRENCY: ${PAYPAL_CURRENCY:-USD}
     depends_on:
       postgres:
         condition: service_healthy

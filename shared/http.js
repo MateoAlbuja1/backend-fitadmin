@@ -60,6 +60,9 @@ function errorHandler(error, req, res, next) {
   }
 
   const status = error.status || 500;
+  if (status >= 500) {
+    console.error(`[${req.id}]`, error);
+  }
   res.status(status).json({
     error: status >= 500 ? 'Internal server error' : error.message,
     details: status >= 500 ? undefined : error.details,

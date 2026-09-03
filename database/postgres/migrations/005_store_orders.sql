@@ -8,6 +8,10 @@ CREATE TABLE IF NOT EXISTS store_orders (
   status VARCHAR(30) NOT NULL DEFAULT 'Nuevo',
   channel VARCHAR(40) NOT NULL DEFAULT 'web',
   total NUMERIC(10,2) NOT NULL DEFAULT 0,
+  payment_method VARCHAR(40) NOT NULL DEFAULT 'WhatsApp',
+  paypal_order_id VARCHAR(120),
+  paypal_capture_id VARCHAR(120),
+  paid_at TIMESTAMPTZ,
   stock_deducted_at TIMESTAMPTZ,
   payment_id INTEGER REFERENCES payments(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -16,6 +20,10 @@ CREATE TABLE IF NOT EXISTS store_orders (
 
 ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS stock_deducted_at TIMESTAMPTZ;
 ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS payment_id INTEGER REFERENCES payments(id) ON DELETE SET NULL;
+ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(40) NOT NULL DEFAULT 'WhatsApp';
+ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS paypal_order_id VARCHAR(120);
+ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS paypal_capture_id VARCHAR(120);
+ALTER TABLE store_orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS store_order_items (
   id SERIAL PRIMARY KEY,
@@ -33,4 +41,5 @@ CREATE INDEX IF NOT EXISTS idx_store_orders_status ON store_orders(status);
 CREATE INDEX IF NOT EXISTS idx_store_orders_created_at ON store_orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_store_orders_stock_deducted ON store_orders(stock_deducted_at);
 CREATE INDEX IF NOT EXISTS idx_store_orders_payment ON store_orders(payment_id);
+CREATE INDEX IF NOT EXISTS idx_store_orders_paypal_order ON store_orders(paypal_order_id);
 CREATE INDEX IF NOT EXISTS idx_store_order_items_order ON store_order_items(order_id);
