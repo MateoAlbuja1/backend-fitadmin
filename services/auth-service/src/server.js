@@ -194,6 +194,29 @@ app.get('/auth/login-history', requireAuth, requireRoles('ADMIN'), asyncHandler(
   })));
 }));
 
+app.get('/auth/users', requireAuth, requireRoles('ADMIN'), asyncHandler(async (req, res) => {
+  const result = await query(
+    `SELECT u.id, u.username, u.email, u.full_name, u.phone, u.client_id, u.active,
+            u.last_login_at, u.created_at, r.name AS role
+     FROM users u
+     JOIN roles r ON r.id = u.role_id
+     ORDER BY u.created_at DESC, u.id DESC`
+  );
+
+  res.json(result.rows.map(row => ({
+    id: row.id,
+    username: row.username,
+    email: row.email,
+    fullName: row.full_name,
+    phone: row.phone,
+    role: row.role,
+    clientId: row.client_id,
+    active: row.active,
+    lastLoginAt: row.last_login_at,
+    createdAt: row.created_at
+  })));
+}));
+
 app.get('/auth/profile', requireAuth, asyncHandler(async (req, res) => {
   const result = await query(
     `SELECT u.id, u.username, u.email, u.full_name, u.phone, u.client_id, u.active, r.name AS role,

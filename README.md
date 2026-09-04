@@ -154,6 +154,7 @@ Autenticacion:
 
 - `POST /auth/register`
 - `POST /auth/login`
+- `GET /auth/users` (solo `ADMIN`)
 - `GET /auth/profile`
 - `POST /auth/logout`
 
