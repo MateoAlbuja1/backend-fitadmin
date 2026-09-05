@@ -1,11 +1,11 @@
 INSERT INTO gym_settings (key, value) VALUES
   ('gym', '{
-    "name": "GX GYM",
+    "name": "WX GYM",
     "sector": "",
     "city": "Quito",
     "address": "Quito, Ecuador",
-    "phone": "+593 99 000 0000",
-    "email": "contacto@gxgym.local",
+    "phone": "0969953775",
+    "email": "contacto@wxgym.local",
     "openingHours": "Lunes a Sabado 06:00 - 22:00",
     "currency": "USD",
     "schedules": [
@@ -22,7 +22,7 @@ INSERT INTO gym_settings (key, value) VALUES
     "name": "Mateo Admin",
     "role": "Administrador",
     "username": "admin",
-    "email": "admin@gxgym.local",
+    "email": "admin@wxgym.local",
     "backupEnabled": true,
     "alertasCriticas": true,
     "security": {

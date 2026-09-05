@@ -199,7 +199,7 @@ async function createPaypalCheckoutOrder(order) {
           reference_id: order.code,
           invoice_id: order.code,
           custom_id: String(order.id),
-          description: `Pedido tienda ${order.code} GX GYM`,
+          description: `Pedido tienda ${order.code} WX GYM`,
           amount: {
             currency_code: paypalCurrency(),
             value: asNumber(order.total).toFixed(2)

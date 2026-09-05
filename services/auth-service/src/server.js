@@ -34,7 +34,7 @@ async function findUser(identifier) {
 async function ensureAdminUser() {
   const username = env('ADMIN_USERNAME', 'admin');
   const password = env('ADMIN_PASSWORD', 'admin');
-  const email = env('ADMIN_EMAIL', 'admin@gxgym.local');
+  const email = env('ADMIN_EMAIL', 'admin@wxgym.local');
   const existing = await findUser(username);
 
   if (existing) {
