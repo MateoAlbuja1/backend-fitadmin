@@ -25,7 +25,24 @@ Backend en arquitectura de microservicios para WX GYM.
 cp .env.example .env
 ```
 
-2. Ajusta `JWT_SECRET` antes de usar en produccion.
+2. Ajusta las variables sensibles antes de usar en produccion.
+
+Variables principales:
+
+- `JWT_SECRET`: llave privada para firmar los tokens de sesion.
+- `DATABASE_URL`: conexion a PostgreSQL, donde se guardan usuarios, clientes, membresias, pagos, inventario y pedidos.
+- `MONGO_URL`: conexion a MongoDB, usado por reportes, alertas, logs, auditoria y eventos.
+- `PAYPAL_CLIENT_ID`: identificador publico de la aplicacion PayPal.
+- `PAYPAL_CLIENT_SECRET`: clave privada de la aplicacion PayPal.
+- `CORS_ORIGIN`: dominio del frontend autorizado para consumir el backend.
+
+Para produccion se puede partir de:
+
+```bash
+cp .env.production.example .env
+```
+
+Importante: el archivo `.env` no debe subirse a GitHub porque contiene credenciales reales.
 
 El usuario inicial se crea automaticamente al iniciar `auth-service`:
 
