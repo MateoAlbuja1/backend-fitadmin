@@ -131,7 +131,7 @@ async function getStoreOrderOrFail(id) {
 }
 
 function orderCode(id) {
-  return `GX-${String(id).padStart(6, '0')}`;
+  return `WX-${String(id).padStart(6, '0')}`;
 }
 
 function normalizeQuantity(value) {
