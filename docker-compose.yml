@@ -51,7 +51,7 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@wxgym.local}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@gxgym.local}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
     depends_on:
       postgres:

@@ -750,11 +750,11 @@ app.get('/public/gym-settings', asyncHandler(async (req, res) => {
   const result = await query("SELECT value FROM gym_settings WHERE key = 'gym'");
   const settings = result.rows[0]?.value || {};
   res.json({
-    name: 'WX GYM',
+    name: 'GX GYM',
     sector: settings.sector || '',
     city: settings.city || 'Quito',
     phone: '0969953775',
-    email: settings.email || 'contacto@wxgym.local',
+    email: settings.email || 'contacto@gxgym.local',
     address: settings.address || 'Quito, Ecuador',
     openingHours: settings.openingHours || 'Lunes a Viernes 08:00 - 21:00',
     schedules: Array.isArray(settings.schedules) ? settings.schedules : []

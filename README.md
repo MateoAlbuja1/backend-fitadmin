@@ -1,6 +1,6 @@
-# WX GYM Backend
+# GX GYM Backend
 
-Backend en arquitectura de microservicios para WX GYM.
+Backend en arquitectura de microservicios para GX GYM.
 
 ## Arquitectura
 
@@ -65,7 +65,7 @@ Ese archivo crea tablas, indices y datos iniciales:
 - Membresias, asistencias y pagos
 - Suplementos visibles para tienda
 - Maquinas internas
-- Configuracion inicial de WX GYM
+- Configuracion inicial de GX GYM
 
 MongoDB ejecuta:
 

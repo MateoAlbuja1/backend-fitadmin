@@ -2,7 +2,7 @@
   "name": "backend-fitadmin",
   "version": "1.0.0",
   "private": true,
-  "description": "Microservices backend for WX GYM.",
+  "description": "Microservices backend for GX GYM.",
   "type": "commonjs",
   "scripts": {
     "start:gateway": "node services/api-gateway/src/server.js",

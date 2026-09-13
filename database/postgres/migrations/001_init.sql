@@ -151,7 +151,7 @@ INSERT INTO roles (name, description) VALUES
 ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO membership_plans (name, duration_days, price, description) VALUES
-  ('Diario', 1, 3.00, 'Acceso por un dia a WX GYM'),
+  ('Diario', 1, 3.00, 'Acceso por un dia a GX GYM'),
   ('Mensual', 30, 35.00, 'Membresia mensual con acceso completo'),
   ('Trimestral', 90, 85.00, 'Membresia trimestral con precio preferencial'),
   ('Anual', 365, 300.00, 'Membresia anual para clientes constantes')
@@ -163,10 +163,10 @@ ON CONFLICT (name) DO UPDATE SET
   updated_at = NOW();
 
 INSERT INTO clients (name, document, phone, email, address, birth_date, status, joined_at, notes) VALUES
-  ('Maria Gonzalez', '1723456789', '099 452 1830', 'maria.gonzalez@wxgym.local', 'Quito, Ecuador', '1995-04-14', 'Activo', '2026-06-08', 'Cliente anual'),
-  ('Carlos Mendoza', '1718294056', '098 116 4205', 'carlos.mendoza@wxgym.local', 'Quitumbe, Quito', '1991-09-20', 'Activo', '2026-06-04', 'Prefiere pago en efectivo'),
-  ('Andrea Perez', '1751839204', '096 730 2241', 'andrea.perez@wxgym.local', 'Quito, Ecuador', '1998-12-02', 'Activo', '2026-05-28', 'Entrena en la tarde'),
-  ('Jose Rivera', '1709483621', '099 044 7612', 'jose.rivera@wxgym.local', 'Guamani, Quito', '1988-02-11', 'Inactivo', '2026-04-12', 'Membresia vencida')
+  ('Maria Gonzalez', '1723456789', '099 452 1830', 'maria.gonzalez@gxgym.local', 'Quito, Ecuador', '1995-04-14', 'Activo', '2026-06-08', 'Cliente anual'),
+  ('Carlos Mendoza', '1718294056', '098 116 4205', 'carlos.mendoza@gxgym.local', 'Quitumbe, Quito', '1991-09-20', 'Activo', '2026-06-04', 'Prefiere pago en efectivo'),
+  ('Andrea Perez', '1751839204', '096 730 2241', 'andrea.perez@gxgym.local', 'Quito, Ecuador', '1998-12-02', 'Activo', '2026-05-28', 'Entrena en la tarde'),
+  ('Jose Rivera', '1709483621', '099 044 7612', 'jose.rivera@gxgym.local', 'Guamani, Quito', '1988-02-11', 'Inactivo', '2026-04-12', 'Membresia vencida')
 ON CONFLICT (document) DO UPDATE SET
   name = EXCLUDED.name,
   phone = EXCLUDED.phone,
@@ -266,18 +266,18 @@ ON CONFLICT (name) DO UPDATE SET
 
 INSERT INTO gym_settings (key, value) VALUES
   ('gym', '{
-    "name": "WX GYM",
+    "name": "GX GYM",
     "sector": "",
     "city": "Quito",
     "address": "Quito, Ecuador",
     "phone": "0969953775",
-    "email": "contacto@wxgym.local",
+    "email": "contacto@gxgym.local",
     "openingHours": "Lunes a sabado 05:30 - 22:00",
     "currency": "USD"
   }'::jsonb),
   ('admin', '{
     "name": "Mateo Admin",
-    "email": "admin@wxgym.local",
+    "email": "admin@gxgym.local",
     "role": "ADMIN",
     "backupEnabled": true,
     "alertasCriticas": true

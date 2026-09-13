@@ -22,7 +22,7 @@ dbx.system_events.updateOne(
     $setOnInsert: {
       event: 'mongo_initialized',
       service: 'mongo-init',
-      message: 'Base collections created for WX GYM',
+      message: 'Base collections created for GX GYM',
       createdAt: new Date()
     }
   },
