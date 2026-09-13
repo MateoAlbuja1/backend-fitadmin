@@ -282,6 +282,7 @@ async function resolveOrderItem(client, item) {
   };
 }
 
+const STORE_ORDER_STATUSES = new Set(['Nuevo', 'Contactado', 'Confirmado', 'Preparado', 'Pago pendiente', 'Pagado', 'Entregado', 'Cancelado']);
 const STOCK_DEDUCTING_STATUSES = new Set(['Confirmado', 'Preparado', 'Pagado', 'Entregado']);
 
 async function deductOrderStock(client, items) {
@@ -464,6 +465,54 @@ async function voidStoreOrderPayment(client, paymentId, status) {
      WHERE id = $2`,
     [`Pago anulado porque el pedido cambio a ${status}.`, paymentId]
   );
+}
+
+async function updateStoreOrderStatus(client, id, status, paymentMethod) {
+  if (!STORE_ORDER_STATUSES.has(status)) {
+    throw httpError(400, 'Invalid order status');
+  }
+
+  const orderResult = await client.query(
+    'SELECT * FROM store_orders WHERE id = $1 OR code = $2 LIMIT 1 FOR UPDATE',
+    [Number(id) || 0, String(id)]
+  );
+  const order = orderResult.rows[0];
+  if (!order) {
+    throw httpError(404, 'Store order not found');
+  }
+
+  const itemsResult = await client.query('SELECT * FROM store_order_items WHERE order_id = $1 ORDER BY id ASC', [order.id]);
+  const shouldDeductStock = STOCK_DEDUCTING_STATUSES.has(status);
+  const hasDeductedStock = Boolean(order.stock_deducted_at);
+
+  if (shouldDeductStock && !hasDeductedStock) {
+    await deductOrderStock(client, itemsResult.rows);
+  }
+  if (!shouldDeductStock && hasDeductedStock) {
+    await restoreOrderStock(client, itemsResult.rows);
+  }
+
+  let paymentId = order.payment_id || null;
+  if (status === 'Pagado' || status === 'Entregado') {
+    paymentId = await settleStoreOrderPayment(client, order, itemsResult.rows, paymentMethod);
+  } else if (paymentId) {
+    await voidStoreOrderPayment(client, paymentId, status);
+  }
+
+  const updateResult = await client.query(
+    `UPDATE store_orders
+     SET status = $1::varchar,
+         stock_deducted_at = CASE WHEN $2::boolean THEN COALESCE(stock_deducted_at, NOW()) ELSE NULL END,
+         payment_id = $4,
+         payment_method = CASE WHEN $5::text <> '' THEN $5::varchar ELSE payment_method END,
+         paid_at = CASE WHEN $1::text IN ('Pagado', 'Entregado') THEN COALESCE(paid_at, NOW()) ELSE NULL END,
+         updated_at = NOW()
+     WHERE id = $3
+     RETURNING *`,
+    [status, shouldDeductStock, order.id, paymentId, paymentMethod || '']
+  );
+
+  return mapStoreOrder(updateResult.rows[0], itemsResult.rows.map(mapStoreOrderItem));
 }
 
 app.get('/health', (req, res) => {
@@ -693,6 +742,33 @@ app.post('/public/paypal/orders/:paypalOrderId/capture', requireAuth, asyncHandl
   res.json(captured);
 }));
 
+app.post('/inventory/store-orders', requireAuth, requireRoles('ADMIN', 'RECEPCION'), asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const requestedStatus = String(body.status || 'Nuevo').trim();
+  if (!STORE_ORDER_STATUSES.has(requestedStatus)) {
+    throw httpError(400, 'Invalid order status');
+  }
+
+  const order = await createStoreOrder(body, {
+    status: 'Nuevo',
+    channel: body.channel || 'presencial',
+    paymentMethod: body.paymentMethod || body.method || 'Efectivo'
+  });
+
+  if (requestedStatus === 'Nuevo') {
+    res.status(201).json(order);
+    return;
+  }
+
+  const updated = await transaction(client => updateStoreOrderStatus(
+    client,
+    order.id,
+    requestedStatus,
+    body.paymentMethod || body.method || 'Efectivo'
+  ));
+  res.status(201).json(updated);
+}));
+
 app.get('/inventory/store-orders', requireAuth, requireRoles('ADMIN', 'RECEPCION'), asyncHandler(async (req, res) => {
   const params = [];
   const where = [];
@@ -722,54 +798,12 @@ app.get('/inventory/store-orders/:id', requireAuth, requireRoles('ADMIN', 'RECEP
 
 app.patch('/inventory/store-orders/:id/status', requireAuth, requireRoles('ADMIN', 'RECEPCION'), asyncHandler(async (req, res) => {
   const status = String(req.body?.status || '').trim();
-  const allowed = new Set(['Nuevo', 'Contactado', 'Confirmado', 'Preparado', 'Pago pendiente', 'Pagado', 'Entregado', 'Cancelado']);
-  if (!allowed.has(status)) {
-    throw httpError(400, 'Invalid order status');
-  }
-
-  const updated = await transaction(async client => {
-    const orderResult = await client.query(
-      'SELECT * FROM store_orders WHERE id = $1 OR code = $2 LIMIT 1 FOR UPDATE',
-      [Number(req.params.id) || 0, String(req.params.id)]
-    );
-    const order = orderResult.rows[0];
-    if (!order) {
-      throw httpError(404, 'Store order not found');
-    }
-
-    const itemsResult = await client.query('SELECT * FROM store_order_items WHERE order_id = $1 ORDER BY id ASC', [order.id]);
-    const shouldDeductStock = STOCK_DEDUCTING_STATUSES.has(status);
-    const hasDeductedStock = Boolean(order.stock_deducted_at);
-
-    if (shouldDeductStock && !hasDeductedStock) {
-      await deductOrderStock(client, itemsResult.rows);
-    }
-    if (!shouldDeductStock && hasDeductedStock) {
-      await restoreOrderStock(client, itemsResult.rows);
-    }
-
-    let paymentId = order.payment_id || null;
-    if (status === 'Pagado' || status === 'Entregado') {
-      paymentId = await settleStoreOrderPayment(client, order, itemsResult.rows, req.body?.paymentMethod || req.body?.method);
-    } else if (paymentId) {
-      await voidStoreOrderPayment(client, paymentId, status);
-    }
-
-    const updateResult = await client.query(
-      `UPDATE store_orders
-       SET status = $1::varchar,
-           stock_deducted_at = CASE WHEN $2::boolean THEN COALESCE(stock_deducted_at, NOW()) ELSE NULL END,
-           payment_id = $4,
-           payment_method = CASE WHEN $5::text <> '' THEN $5::varchar ELSE payment_method END,
-           paid_at = CASE WHEN $1::text IN ('Pagado', 'Entregado') THEN COALESCE(paid_at, NOW()) ELSE NULL END,
-           updated_at = NOW()
-       WHERE id = $3
-       RETURNING *`,
-      [status, shouldDeductStock, order.id, paymentId, req.body?.paymentMethod || req.body?.method || '']
-    );
-
-    return mapStoreOrder(updateResult.rows[0], itemsResult.rows.map(mapStoreOrderItem));
-  });
+  const updated = await transaction(client => updateStoreOrderStatus(
+    client,
+    req.params.id,
+    status,
+    req.body?.paymentMethod || req.body?.method
+  ));
 
   res.json(updated);
 }));
