@@ -8,6 +8,26 @@ const path = require('path');
 const serviceName = 'gym-service';
 const app = createApp(serviceName);
 
+function normalizePlanName(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/^plan\s+/, '');
+
+  const names = {
+    diario: 'Diario',
+    mensual: 'Mensual',
+    trimestral: 'Trimestral',
+    anual: 'Anual'
+  };
+
+  return names[normalized] || null;
+}
+
 function mapClient(row) {
   return {
     id: row.id,
@@ -245,23 +265,58 @@ app.post('/clients', asyncHandler(async (req, res) => {
   if (!body.name || !body.document) {
     throw httpError(400, 'name and document are required');
   }
-  const result = await query(
-    `INSERT INTO clients (name, document, phone, email, address, birth_date, status, joined_at, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'Activo'), COALESCE($8, CURRENT_DATE), $9)
-     RETURNING id`,
-    [
-      String(body.name).trim(),
-      String(body.document).trim(),
-      body.phone || null,
-      body.email || null,
-      body.address || null,
-      body.birthDate || null,
-      body.status || 'Activo',
-      body.joinedAt || null,
-      body.notes || null
-    ]
-  );
-  res.status(201).json(await getClientOrFail(result.rows[0].id));
+
+  const clientId = await transaction(async client => {
+    const result = await client.query(
+      `INSERT INTO clients (name, document, phone, email, address, birth_date, status, joined_at, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'Activo'), COALESCE($8, CURRENT_DATE), $9)
+       RETURNING id, joined_at`,
+      [
+        String(body.name).trim(),
+        String(body.document).trim(),
+        body.phone || null,
+        body.email || null,
+        body.address || null,
+        body.birthDate || null,
+        body.status || 'Activo',
+        body.joinedAt || null,
+        body.notes || null
+      ]
+    );
+
+    const createdClient = result.rows[0];
+    const planName = normalizePlanName(body.plan || body.planName);
+    const planResult = body.planId
+      ? await client.query('SELECT * FROM membership_plans WHERE id = $1 AND active = TRUE', [body.planId])
+      : planName
+        ? await client.query('SELECT * FROM membership_plans WHERE name = $1 AND active = TRUE', [planName])
+        : { rows: [] };
+
+    if (body.planId || body.plan || body.planName) {
+      const plan = planResult.rows[0];
+      if (!plan) {
+        throw httpError(400, 'Membership plan not found');
+      }
+
+      const startDate = body.membershipStartDate || body.joinedAt || createdClient.joined_at;
+      await client.query(
+        `INSERT INTO memberships (client_id, plan_id, start_date, end_date, status, price, notes)
+         VALUES ($1, $2, $3, ($3::date + ($4 || ' days')::interval)::date, 'Activa', $5, $6)`,
+        [
+          createdClient.id,
+          plan.id,
+          startDate,
+          plan.duration_days,
+          body.membershipPrice ?? plan.price,
+          body.membershipNotes || 'Membresia inicial creada con el cliente'
+        ]
+      );
+    }
+
+    return createdClient.id;
+  });
+
+  res.status(201).json(await getClientOrFail(clientId));
 }));
 
 app.put('/clients/:id', asyncHandler(async (req, res) => {
