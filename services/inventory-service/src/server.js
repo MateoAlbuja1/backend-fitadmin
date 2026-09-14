@@ -383,6 +383,15 @@ async function createStoreOrder(body, options = {}) {
       resolvedItems.push(await resolveOrderItem(client, item));
     }
 
+    const quantitiesBySupplement = new Map();
+    for (const item of resolvedItems) {
+      const supplementId = item.supplement.id;
+      quantitiesBySupplement.set(supplementId, (quantitiesBySupplement.get(supplementId) || 0) + item.quantity);
+      if (quantitiesBySupplement.get(supplementId) > item.supplement.stock) {
+        throw httpError(409, `Insufficient stock for ${item.supplement.name}`);
+      }
+    }
+
     const total = Number(resolvedItems.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
     const tempCode = `TMP-${Date.now()}-${Math.round(Math.random() * 1000000)}`;
     const orderResult = await client.query(
