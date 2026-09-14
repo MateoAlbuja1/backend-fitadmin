@@ -780,7 +780,8 @@ app.post('/inventory/store-orders', requireAuth, requireRoles('ADMIN', 'RECEPCIO
 
 app.get('/inventory/store-orders', requireAuth, requireRoles('ADMIN', 'RECEPCION'), asyncHandler(async (req, res) => {
   const params = [];
-  const where = [];
+  const includePendingPaypal = String(req.query.includePendingPaypal || '').toLowerCase() === 'true';
+  const where = includePendingPaypal ? [] : [`NOT (channel = 'paypal' AND status = 'Pago pendiente')`];
 
   if (req.query.status && req.query.status !== 'Todos') {
     params.push(req.query.status);
