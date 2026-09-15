@@ -5,6 +5,7 @@ const { formatDate } = require('../../../shared/format');
 
 const serviceName = 'inventory-service';
 const app = createApp(serviceName);
+const ECUADOR_STANDARD_VAT_RATE = 15;
 
 function mapSupplement(row) {
   return {
@@ -246,10 +247,10 @@ function todayKey() {
 
 function normalizeTemporaryVat(value) {
   const settings = value && typeof value === 'object' ? value : {};
-  const rate = Number(settings.rate ?? 15);
+  const rate = Number(settings.rate ?? ECUADOR_STANDARD_VAT_RATE);
   return {
     enabled: Boolean(settings.enabled),
-    rate: Number.isFinite(rate) ? Math.min(100, Math.max(0, Number(rate.toFixed(2)))) : 15,
+    rate: Number.isFinite(rate) ? Math.min(100, Math.max(0, Number(rate.toFixed(2)))) : ECUADOR_STANDARD_VAT_RATE,
     startsAt: typeof settings.startsAt === 'string' ? settings.startsAt : '',
     endsAt: typeof settings.endsAt === 'string' ? settings.endsAt : '',
     reason: typeof settings.reason === 'string' && settings.reason.trim() ? settings.reason.trim() : 'Feriado nacional'
@@ -280,7 +281,8 @@ function priceWithTemporaryVat(price, vat) {
     return Number(basePrice.toFixed(2));
   }
 
-  return Number((basePrice * (1 + vat.rate / 100)).toFixed(2));
+  const priceBeforeVat = basePrice / (1 + ECUADOR_STANDARD_VAT_RATE / 100);
+  return Number((priceBeforeVat * (1 + vat.rate / 100)).toFixed(2));
 }
 
 async function resolveOrderItem(client, item, vat) {
