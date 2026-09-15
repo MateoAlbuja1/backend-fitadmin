@@ -692,11 +692,26 @@ app.delete('/payments/:id', asyncHandler(async (req, res) => {
 }));
 
 app.get('/dashboard/summary', asyncHandler(async (req, res) => {
-  const [clients, memberships, sales, pending, attendanceToday, lowStock, machines, alertsBase] = await Promise.all([
+  const [
+    clients,
+    memberships,
+    sales,
+    pending,
+    storeOrdersToCollect,
+    storeOrdersPaid,
+    storeSales,
+    attendanceToday,
+    lowStock,
+    machines,
+    alertsBase
+  ] = await Promise.all([
     query("SELECT COUNT(*)::int AS value FROM clients WHERE status = 'Activo'"),
     query("SELECT COUNT(*)::int AS value FROM memberships WHERE end_date >= CURRENT_DATE AND status <> 'Vencida'"),
     query("SELECT COALESCE(SUM(amount),0)::numeric AS value FROM payments WHERE status = 'Pagado'"),
     query("SELECT COUNT(*)::int AS value FROM payments WHERE status = 'Pendiente'"),
+    query("SELECT COUNT(*)::int AS value FROM store_orders WHERE status = 'Pago pendiente' AND channel <> 'paypal'"),
+    query("SELECT COUNT(*)::int AS value FROM store_orders WHERE status = 'Pagado'"),
+    query("SELECT COALESCE(SUM(total),0)::numeric AS value FROM store_orders WHERE status IN ('Pagado', 'Entregado')"),
     query("SELECT COUNT(*)::int AS value FROM attendance WHERE check_in_at::date = CURRENT_DATE"),
     query('SELECT COUNT(*)::int AS value FROM supplements WHERE stock <= min_stock'),
     query("SELECT COUNT(*)::int AS value FROM machines WHERE status = 'Operativa'"),
@@ -708,6 +723,9 @@ app.get('/dashboard/summary', asyncHandler(async (req, res) => {
     membresiasActivas: memberships.rows[0].value,
     ventas: asNumber(sales.rows[0].value),
     pagosPendientes: pending.rows[0].value,
+    pedidosPorCobrar: storeOrdersToCollect.rows[0].value,
+    pedidosPagados: storeOrdersPaid.rows[0].value,
+    ventasTienda: asNumber(storeSales.rows[0].value),
     asistenciasHoy: attendanceToday.rows[0].value,
     stockBajo: lowStock.rows[0].value,
     maquinasOperativas: machines.rows[0].value,
