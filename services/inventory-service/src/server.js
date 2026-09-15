@@ -236,7 +236,54 @@ function paypalCaptureId(capturePayload) {
   return capturePayload?.purchase_units?.[0]?.payments?.captures?.[0]?.id || '';
 }
 
-async function resolveOrderItem(client, item) {
+function todayKey() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeTemporaryVat(value) {
+  const settings = value && typeof value === 'object' ? value : {};
+  const rate = Number(settings.rate ?? 15);
+  return {
+    enabled: Boolean(settings.enabled),
+    rate: Number.isFinite(rate) ? Math.min(100, Math.max(0, Number(rate.toFixed(2)))) : 15,
+    startsAt: typeof settings.startsAt === 'string' ? settings.startsAt : '',
+    endsAt: typeof settings.endsAt === 'string' ? settings.endsAt : '',
+    reason: typeof settings.reason === 'string' && settings.reason.trim() ? settings.reason.trim() : 'Feriado nacional'
+  };
+}
+
+async function activeTemporaryVat() {
+  const result = await query("SELECT value FROM gym_settings WHERE key = 'gym'");
+  const vat = normalizeTemporaryVat(result.rows[0]?.value?.temporaryVat);
+  if (!vat.enabled || vat.rate <= 0) {
+    return null;
+  }
+
+  const today = todayKey();
+  if (vat.startsAt && today < vat.startsAt) {
+    return null;
+  }
+  if (vat.endsAt && today > vat.endsAt) {
+    return null;
+  }
+
+  return vat;
+}
+
+function priceWithTemporaryVat(price, vat) {
+  const basePrice = asNumber(price);
+  if (!vat) {
+    return Number(basePrice.toFixed(2));
+  }
+
+  return Number((basePrice * (1 + vat.rate / 100)).toFixed(2));
+}
+
+async function resolveOrderItem(client, item, vat) {
   const supplementId = Number(item.supplementId || item.productId || item.id || 0);
   const productName = String(item.name || item.productName || '').trim();
   const params = [];
@@ -273,7 +320,7 @@ async function resolveOrderItem(client, item) {
     throw httpError(409, `Insufficient stock for ${supplement.name}`);
   }
 
-  const unitPrice = asNumber(supplement.price);
+  const unitPrice = priceWithTemporaryVat(supplement.price, vat);
   return {
     supplement,
     quantity,
@@ -379,8 +426,9 @@ async function createStoreOrder(body, options = {}) {
 
   const createdId = await transaction(async client => {
     const resolvedItems = [];
+    const vat = await activeTemporaryVat();
     for (const item of items) {
-      resolvedItems.push(await resolveOrderItem(client, item));
+      resolvedItems.push(await resolveOrderItem(client, item, vat));
     }
 
     const quantitiesBySupplement = new Map();

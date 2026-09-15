@@ -248,13 +248,17 @@ ON CONFLICT (name) DO UPDATE SET
   visible_in_store = EXCLUDED.visible_in_store,
   updated_at = NOW();
 
+DELETE FROM machines;
+ALTER SEQUENCE machines_id_seq RESTART WITH 1;
+
 INSERT INTO machines (name, type, location, status, maintenance_date, image_url, observations) VALUES
-  ('Prensa inclinada', 'Maquina de fuerza', 'Zona inferior', 'Operativa', '2026-07-15', 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1000&q=80', 'Equipo principal para pierna'),
-  ('Polea crossover', 'Multiestacion', 'Zona funcional', 'Operativa', '2026-06-28', 'https://images.unsplash.com/photo-1540497077202-7c8a3999166f?auto=format&fit=crop&w=1000&q=80', 'Revisar cables cada semana'),
-  ('Caminadora profesional', 'Cardio', 'Zona cardio', 'Mantenimiento', '2026-06-20', 'https://images.unsplash.com/photo-1576678927484-cc907957088c?auto=format&fit=crop&w=1000&q=80', 'Requiere ajuste de banda'),
-  ('Bicicleta de spinning', 'Cardio indoor', 'Sala de cycling', 'Operativa', '2026-07-22', 'https://images.unsplash.com/photo-1599058917212-d750089bc07e?auto=format&fit=crop&w=1000&q=80', 'Clase grupal'),
-  ('Maquina Smith', 'Fuerza guiada', 'Zona de peso libre', 'Operativa', '2026-08-05', 'https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?auto=format&fit=crop&w=1000&q=80', 'Lubricar guias'),
-  ('Remo sentado', 'Fuerza selectorizada', 'Zona superior', 'Fuera de servicio', '2026-06-19', 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?auto=format&fit=crop&w=1000&q=80', 'Cable danado')
+  ('Extension de piernas', 'Fuerza de tren inferior', 'Zona de piernas', 'Operativa', '2026-10-10', '/assets/img/machines/extension-piernas.png', 'Equipo para trabajo controlado de cuadriceps'),
+  ('Remo sentado', 'Fuerza selectorizada', 'Zona de espalda', 'Operativa', '2026-10-12', '/assets/img/machines/remo-sentado.png', 'Equipo principal para espalda media'),
+  ('Jalon al pecho', 'Polea alta', 'Zona de espalda', 'Operativa', '2026-10-14', '/assets/img/machines/jalon-al-pecho.png', 'Revisar cable y agarre en mantenimiento preventivo'),
+  ('Estacion de poleas', 'Multiestacion', 'Zona funcional', 'Operativa', '2026-10-16', '/assets/img/machines/estacion-poleas.png', 'Torre funcional para ejercicios de empuje y traccion'),
+  ('Polea alta', 'Fuerza guiada', 'Zona de espalda', 'Operativa', '2026-10-18', '/assets/img/machines/polea-alta.png', 'Equipo de polea para dorsales y accesorios'),
+  ('Banco Scott', 'Peso libre asistido', 'Zona de brazos', 'Operativa', '2026-10-20', '/assets/img/machines/banco-scott.png', 'Banco para curl predicador con barra'),
+  ('Press de pecho', 'Fuerza selectorizada', 'Zona superior', 'Operativa', '2026-10-22', '/assets/img/machines/press-pecho.png', 'Maquina guiada para pecho y hombro anterior')
 ON CONFLICT (name) DO UPDATE SET
   type = EXCLUDED.type,
   location = EXCLUDED.location,

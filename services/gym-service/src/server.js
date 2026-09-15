@@ -28,6 +28,18 @@ function normalizePlanName(value) {
   return names[normalized] || null;
 }
 
+function normalizeTemporaryVat(value) {
+  const settings = value && typeof value === 'object' ? value : {};
+  const rate = Number(settings.rate ?? 15);
+  return {
+    enabled: Boolean(settings.enabled),
+    rate: Number.isFinite(rate) ? Math.min(100, Math.max(0, Number(rate.toFixed(2)))) : 15,
+    startsAt: typeof settings.startsAt === 'string' ? settings.startsAt : '',
+    endsAt: typeof settings.endsAt === 'string' ? settings.endsAt : '',
+    reason: typeof settings.reason === 'string' && settings.reason.trim() ? settings.reason.trim() : 'Feriado nacional'
+  };
+}
+
 function mapClient(row) {
   return {
     id: row.id,
@@ -812,7 +824,8 @@ app.get('/public/gym-settings', asyncHandler(async (req, res) => {
     email: settings.email || 'contacto@wxgym.local',
     address: settings.address || 'Quito, Ecuador',
     openingHours: settings.openingHours || 'Lunes a Viernes 08:00 - 21:00',
-    schedules: Array.isArray(settings.schedules) ? settings.schedules : []
+    schedules: Array.isArray(settings.schedules) ? settings.schedules : [],
+    temporaryVat: normalizeTemporaryVat(settings.temporaryVat)
   });
 }));
 
