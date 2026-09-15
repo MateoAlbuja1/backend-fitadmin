@@ -827,7 +827,8 @@ app.post('/settings/backup', requireAuth, requireRoles('ADMIN'), asyncHandler(as
     fileName,
     path: filePath,
     records,
-    generatedAt: snapshot.generatedAt
+    generatedAt: snapshot.generatedAt,
+    snapshot
   });
 }));
 
