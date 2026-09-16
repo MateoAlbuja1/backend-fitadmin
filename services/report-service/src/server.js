@@ -81,9 +81,20 @@ async function generateReport(type, filters) {
       filters
     );
     const result = await query(`${sql} GROUP BY method ORDER BY total DESC`, params);
+    const detailParams = [];
+    const detailSql = addDateFilter(
+      `SELECT id, client_id, concept, method, status, paid_at, amount, observation
+       FROM payments
+       WHERE status = 'Pagado'`,
+      detailParams,
+      'paid_at',
+      filters
+    );
+    const details = await query(`${detailSql} ORDER BY paid_at DESC, id DESC`, detailParams);
     return {
       totals: result.rows.map(row => ({ method: row.method, count: row.count, total: asNumber(row.total) })),
-      total: result.rows.reduce((sum, row) => sum + Number(row.total), 0)
+      total: result.rows.reduce((sum, row) => sum + Number(row.total), 0),
+      rows: details.rows.map(row => ({ ...row, amount: asNumber(row.amount), paid_at: formatDate(row.paid_at) }))
     };
   }
 
@@ -97,8 +108,19 @@ async function generateReport(type, filters) {
       filters
     );
     const result = await query(`${sql} GROUP BY status ORDER BY status`, params);
+    const detailParams = [];
+    const detailSql = addDateFilter(
+      `SELECT p.id, COALESCE(c.name, 'Cliente externo') AS client_name, p.concept, p.method, p.status, p.paid_at, p.amount, p.observation
+       FROM payments p
+       LEFT JOIN clients c ON c.id = p.client_id`,
+      detailParams,
+      'p.paid_at',
+      filters
+    );
+    const details = await query(`${detailSql} ORDER BY p.paid_at DESC, p.id DESC`, detailParams);
     return {
-      byStatus: result.rows.map(row => ({ status: row.status, count: row.count, total: asNumber(row.total) }))
+      byStatus: result.rows.map(row => ({ status: row.status, count: row.count, total: asNumber(row.total) })),
+      rows: details.rows.map(row => ({ ...row, amount: asNumber(row.amount), paid_at: formatDate(row.paid_at) }))
     };
   }
 
@@ -116,7 +138,28 @@ async function generateReport(type, filters) {
        GROUP BY mp.name, status
        ORDER BY mp.name, status`
     );
-    return { byPlan: result.rows };
+    const details = await query(
+      `SELECT m.id, c.name AS client_name, c.document, mp.name AS plan, m.start_date, m.end_date,
+              CASE
+                WHEN m.end_date < CURRENT_DATE THEN 'Vencida'
+                WHEN m.end_date <= CURRENT_DATE + INTERVAL '7 days' THEN 'Por vencer'
+                ELSE 'Activa'
+              END AS status,
+              m.price
+       FROM memberships m
+       JOIN clients c ON c.id = m.client_id
+       JOIN membership_plans mp ON mp.id = m.plan_id
+       ORDER BY m.end_date ASC, c.name ASC`
+    );
+    return {
+      byPlan: result.rows,
+      rows: details.rows.map(row => ({
+        ...row,
+        start_date: formatDate(row.start_date),
+        end_date: formatDate(row.end_date),
+        price: asNumber(row.price)
+      }))
+    };
   }
 
   if (type === 'attendance' || type === 'asistencia') {
@@ -129,9 +172,24 @@ async function generateReport(type, filters) {
       filters
     );
     const result = await query(`${sql} GROUP BY check_in_at::date ORDER BY date DESC`, params);
+    const detailParams = [];
+    const detailSql = addDateFilter(
+      `SELECT a.id, c.name AS client_name, c.document, a.check_in_at, a.access_point, a.status, a.notes
+       FROM attendance a
+       JOIN clients c ON c.id = a.client_id`,
+      detailParams,
+      'a.check_in_at::date',
+      filters
+    );
+    const details = await query(`${detailSql} ORDER BY a.check_in_at DESC`, detailParams);
     return {
       byDate: result.rows.map(row => ({ date: row.date, label: formatDate(row.date), count: row.count })),
-      total: result.rows.reduce((sum, row) => sum + Number(row.count), 0)
+      total: result.rows.reduce((sum, row) => sum + Number(row.count), 0),
+      rows: details.rows.map(row => ({
+        ...row,
+        date: formatDate(row.check_in_at),
+        check_in_at: row.check_in_at
+      }))
     };
   }
 
@@ -143,7 +201,28 @@ async function generateReport(type, filters) {
     return {
       lowStock: supplements.rows.filter(item => item.stock <= item.min_stock),
       supplements: supplements.rows.map(item => ({ ...item, price: asNumber(item.price) })),
-      machines: machines.rows
+      machines: machines.rows,
+      rows: [
+        ...supplements.rows.map(item => ({
+          tipo: 'Suplemento',
+          nombre: item.name,
+          categoria: item.category,
+          stock: item.stock,
+          minimo: item.min_stock,
+          precio: asNumber(item.price),
+          estado: item.stock <= item.min_stock ? 'Stock bajo' : 'Disponible'
+        })),
+        ...machines.rows.map(item => ({
+          tipo: 'Maquina',
+          nombre: item.name,
+          categoria: item.type,
+          stock: '',
+          minimo: '',
+          precio: '',
+          estado: item.status,
+          mantenimiento: formatDate(item.maintenance_date)
+        }))
+      ]
     };
   }
 
@@ -172,7 +251,13 @@ async function generateReport(type, filters) {
     activeClients: clients.rows[0].count,
     paidTotal: asNumber(paid.rows[0].total),
     attendanceTotal: attendance.rows[0].count,
-    lowStock: lowStock.rows[0].count
+    lowStock: lowStock.rows[0].count,
+    rows: [
+      { indicador: 'Clientes activos', valor: clients.rows[0].count },
+      { indicador: 'Ingresos pagados', valor: asNumber(paid.rows[0].total) },
+      { indicador: 'Asistencias', valor: attendance.rows[0].count },
+      { indicador: 'Productos con stock bajo', valor: lowStock.rows[0].count }
+    ]
   };
 }
 

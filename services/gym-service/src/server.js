@@ -260,6 +260,194 @@ async function createBackupSnapshot() {
   };
 }
 
+const restoreTables = [
+  'clients',
+  'membership_plans',
+  'memberships',
+  'attendance',
+  'payments',
+  'supplements',
+  'machines',
+  'gym_settings',
+  'contacts',
+  'store_orders',
+  'store_order_items'
+];
+
+const restoreDeleteOrder = [
+  'store_order_items',
+  'store_orders',
+  'attendance',
+  'payments',
+  'memberships',
+  'contacts',
+  'machines',
+  'supplements',
+  'gym_settings',
+  'membership_plans',
+  'clients'
+];
+
+function quoteIdentifier(value) {
+  if (!/^[a-z_][a-z0-9_]*$/i.test(value)) {
+    throw httpError(400, `Invalid identifier: ${value}`);
+  }
+  return `"${value}"`;
+}
+
+function normalizeBackupSnapshot(payload) {
+  const snapshot = payload?.snapshot || payload;
+  if (!snapshot || typeof snapshot !== 'object' || !snapshot.tables || typeof snapshot.tables !== 'object') {
+    throw httpError(400, 'Backup invalido: falta la seccion tables.');
+  }
+  return snapshot;
+}
+
+async function tableColumns(client, tableName) {
+  const result = await client.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1
+     ORDER BY ordinal_position`,
+    [tableName]
+  );
+  return new Set(result.rows.map(row => row.column_name));
+}
+
+async function insertBackupRows(client, tableName, rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return 0;
+  }
+
+  const allowedColumns = await tableColumns(client, tableName);
+  let inserted = 0;
+
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') {
+      continue;
+    }
+
+    const columns = Object.keys(row).filter(column => allowedColumns.has(column));
+    if (!columns.length) {
+      continue;
+    }
+
+    const values = columns.map(column => row[column]);
+    const placeholders = columns.map((_, index) => `$${index + 1}`);
+    await client.query(
+      `INSERT INTO ${quoteIdentifier(tableName)} (${columns.map(quoteIdentifier).join(', ')})
+       VALUES (${placeholders.join(', ')})`,
+      values
+    );
+    inserted += 1;
+  }
+
+  return inserted;
+}
+
+async function resetTableSequence(client, tableName) {
+  const result = await client.query('SELECT pg_get_serial_sequence($1, $2) AS sequence_name', [tableName, 'id']);
+  const sequenceName = result.rows[0]?.sequence_name;
+  if (!sequenceName) {
+    return;
+  }
+
+  await client.query(
+    `SELECT setval(
+       $1,
+       COALESCE((SELECT MAX(id) FROM ${quoteIdentifier(tableName)}), 1),
+       (SELECT MAX(id) IS NOT NULL FROM ${quoteIdentifier(tableName)})
+     )`,
+    [sequenceName]
+  );
+}
+
+async function restoreUserMetadata(client, users = []) {
+  if (!Array.isArray(users) || !users.length) {
+    return 0;
+  }
+
+  let updated = 0;
+  for (const user of users) {
+    if (!user || typeof user !== 'object' || !user.id) {
+      continue;
+    }
+
+    const result = await client.query(
+      `UPDATE users
+       SET full_name = COALESCE($2, full_name),
+           phone = $3,
+           role_id = COALESCE($4, role_id),
+           active = COALESCE($5, active),
+           client_id = CASE
+             WHEN $6::int IS NULL THEN NULL
+             WHEN EXISTS (SELECT 1 FROM clients WHERE id = $6::int) THEN $6::int
+             ELSE client_id
+           END,
+           last_login_at = $7,
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING id`,
+      [
+        user.id,
+        user.full_name || null,
+        user.phone || null,
+        user.role_id || null,
+        typeof user.active === 'boolean' ? user.active : null,
+        user.client_id || null,
+        user.last_login_at || null
+      ]
+    );
+    updated += result.rowCount;
+  }
+
+  return updated;
+}
+
+async function restoreBackupSnapshot(snapshot) {
+  return transaction(async client => {
+    await client.query('SET CONSTRAINTS ALL DEFERRED');
+
+    for (const tableName of restoreDeleteOrder) {
+      await client.query(`DELETE FROM ${quoteIdentifier(tableName)}`);
+    }
+
+    const restored = {};
+    for (const tableName of restoreTables) {
+      restored[tableName] = await insertBackupRows(client, tableName, snapshot.tables[tableName] || []);
+      await resetTableSequence(client, tableName);
+    }
+    restored.users_updated = await restoreUserMetadata(client, snapshot.tables.users || []);
+
+    return restored;
+  });
+}
+
+async function latestBackupInfo() {
+  const backupDir = process.env.BACKUP_DIR || '/app/backups';
+  try {
+    const files = await fs.readdir(backupDir, { withFileTypes: true });
+    const backups = await Promise.all(
+      files
+        .filter(file => file.isFile() && file.name.endsWith('.json'))
+        .map(async file => {
+          const filePath = path.join(backupDir, file.name);
+          const stats = await fs.stat(filePath);
+          return {
+            fileName: file.name,
+            path: filePath,
+            size: stats.size,
+            createdAt: stats.mtime.toISOString()
+          };
+        })
+    );
+    backups.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return backups[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 app.get('/health', (req, res) => {
   res.json({ service: serviceName, status: 'ok' });
 });
@@ -829,6 +1017,90 @@ app.post('/settings/backup', requireAuth, requireRoles('ADMIN'), asyncHandler(as
     records,
     generatedAt: snapshot.generatedAt,
     snapshot
+  });
+}));
+
+app.post('/settings/restore', requireAuth, requireRoles('ADMIN'), asyncHandler(async (req, res) => {
+  const snapshot = normalizeBackupSnapshot(req.body || {});
+  if (req.body?.validateOnly) {
+    const restored = Object.fromEntries(
+      restoreTables.map(tableName => [tableName, Array.isArray(snapshot.tables[tableName]) ? snapshot.tables[tableName].length : 0])
+    );
+    restored.users_updated = Array.isArray(snapshot.tables.users) ? snapshot.tables.users.length : 0;
+    const records = Object.values(restored).reduce((total, count) => total + count, 0);
+    res.json({
+      status: 'valid',
+      message: 'Backup validated successfully.',
+      generatedAt: snapshot.generatedAt || null,
+      records,
+      restored
+    });
+    return;
+  }
+
+  const restored = await restoreBackupSnapshot(snapshot);
+  const records = Object.values(restored).reduce((total, count) => total + count, 0);
+
+  res.json({
+    status: 'restored',
+    message: 'Backup restored successfully.',
+    generatedAt: snapshot.generatedAt || null,
+    records,
+    restored
+  });
+}));
+
+app.get('/settings/system-status', requireAuth, requireRoles('ADMIN'), asyncHandler(async (req, res) => {
+  const startedAt = process.uptime();
+  const [
+    database,
+    clients,
+    supplements,
+    machines,
+    orders,
+    settings
+  ] = await Promise.all([
+    query('SELECT NOW() AS now'),
+    query('SELECT COUNT(*)::int AS value FROM clients'),
+    query('SELECT COUNT(*)::int AS value FROM supplements'),
+    query('SELECT COUNT(*)::int AS value FROM machines'),
+    query('SELECT COUNT(*)::int AS value FROM store_orders'),
+    query("SELECT value FROM gym_settings WHERE key = 'gym'")
+  ]);
+
+  const lastBackup = await latestBackupInfo();
+  const gymSettings = settings.rows[0]?.value || {};
+
+  res.json({
+    service: serviceName,
+    status: 'ok',
+    checkedAt: database.rows[0].now,
+    uptimeSeconds: Math.round(startedAt),
+    database: {
+      status: 'ok',
+      engine: 'postgres'
+    },
+    api: {
+      status: 'ok'
+    },
+    backup: {
+      status: lastBackup ? 'ok' : 'warning',
+      lastBackup
+    },
+    paypal: {
+      status: process.env.PAYPAL_CLIENT_ID ? 'ok' : 'warning',
+      mode: process.env.PAYPAL_ENV || process.env.PAYPAL_MODE || 'no configurado'
+    },
+    counts: {
+      clients: clients.rows[0].value,
+      supplements: supplements.rows[0].value,
+      machines: machines.rows[0].value,
+      orders: orders.rows[0].value
+    },
+    settings: {
+      temporaryVat: normalizeTemporaryVat(gymSettings.temporaryVat),
+      openingHours: gymSettings.openingHours || ''
+    }
   });
 }));
 
