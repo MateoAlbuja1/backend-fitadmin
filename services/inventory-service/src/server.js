@@ -285,7 +285,49 @@ function priceWithTemporaryVat(price, vat) {
   return Number((priceBeforeVat * (1 + vat.rate / 100)).toFixed(2));
 }
 
-async function resolveOrderItem(client, item, vat) {
+function normalizeWebPromotion(value) {
+  const settings = value && typeof value === 'object' ? value : {};
+  const productId = Number(settings.productId || 0);
+  const price = parsePriceLabel(settings.priceLabel);
+  return {
+    enabled: Boolean(settings.enabled),
+    productId: Number.isFinite(productId) && productId > 0 ? productId : null,
+    title: typeof settings.title === 'string' ? settings.title : '',
+    price
+  };
+}
+
+function parsePriceLabel(value) {
+  const price = Number(String(value || '').replace(',', '.').replace(/[^\d.]/g, ''));
+  return Number.isFinite(price) && price > 0 ? Number(price.toFixed(2)) : null;
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+async function activeWebPromotion(client) {
+  const result = await client.query("SELECT value FROM gym_settings WHERE key = 'gym'");
+  const settings = result.rows[0]?.value || {};
+  const promotion = normalizeWebPromotion(settings.webPromotion);
+  return promotion.enabled && promotion.price ? promotion : null;
+}
+
+function priceWithActivePromotion(supplement, defaultPrice, promotion) {
+  if (!promotion) {
+    return defaultPrice;
+  }
+
+  const matchesId = promotion.productId && Number(supplement.id) === promotion.productId;
+  const matchesTitle = promotion.title && normalizeText(promotion.title).includes(normalizeText(supplement.name));
+  return matchesId || matchesTitle ? promotion.price : defaultPrice;
+}
+
+async function resolveOrderItem(client, item, vat, promotion) {
   const supplementId = Number(item.supplementId || item.productId || item.id || 0);
   const productName = String(item.name || item.productName || '').trim();
   const params = [];
@@ -322,7 +364,7 @@ async function resolveOrderItem(client, item, vat) {
     throw httpError(409, `Insufficient stock for ${supplement.name}`);
   }
 
-  const unitPrice = priceWithTemporaryVat(supplement.price, vat);
+  const unitPrice = priceWithActivePromotion(supplement, priceWithTemporaryVat(supplement.price, vat), promotion);
   return {
     supplement,
     quantity,
@@ -429,8 +471,9 @@ async function createStoreOrder(body, options = {}) {
   const createdId = await transaction(async client => {
     const resolvedItems = [];
     const vat = await activeTemporaryVat();
+    const promotion = await activeWebPromotion(client);
     for (const item of items) {
-      resolvedItems.push(await resolveOrderItem(client, item, vat));
+      resolvedItems.push(await resolveOrderItem(client, item, vat, promotion));
     }
 
     const quantitiesBySupplement = new Map();

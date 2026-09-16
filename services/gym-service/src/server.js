@@ -690,19 +690,28 @@ app.post('/memberships', asyncHandler(async (req, res) => {
 
 app.put('/memberships/:id', asyncHandler(async (req, res) => {
   const body = req.body || {};
-  await query(
-    `UPDATE memberships SET
-       client_id = COALESCE($1, client_id),
-       plan_id = COALESCE($2, plan_id),
-       start_date = COALESCE($3, start_date),
-       end_date = COALESCE($4, end_date),
-       status = COALESCE($5, status),
-       price = COALESCE($6, price),
-       notes = COALESCE($7, notes),
-       updated_at = NOW()
-     WHERE id = $8`,
-    [body.clientId ?? null, body.planId ?? null, body.startDate ?? null, body.endDate ?? null, body.status ?? null, body.price ?? null, body.notes ?? null, req.params.id]
-  );
+  await transaction(async client => {
+    let planId = body.planId ?? null;
+    const planName = normalizePlanName(body.plan || body.planName);
+    if (!planId && planName) {
+      const plan = await client.query('SELECT id FROM membership_plans WHERE name = $1 AND active = TRUE', [planName]);
+      planId = plan.rows[0]?.id ?? null;
+    }
+
+    await client.query(
+      `UPDATE memberships SET
+         client_id = COALESCE($1, client_id),
+         plan_id = COALESCE($2, plan_id),
+         start_date = COALESCE($3, start_date),
+         end_date = COALESCE($4, end_date),
+         status = COALESCE($5, status),
+         price = COALESCE($6, price),
+         notes = COALESCE($7, notes),
+         updated_at = NOW()
+       WHERE id = $8`,
+      [body.clientId ?? null, planId, body.startDate ?? null, body.endDate ?? null, body.status ?? null, body.price ?? null, body.notes ?? null, req.params.id]
+    );
+  });
   const memberships = await listMemberships('WHERE m.id = $1', [req.params.id]);
   if (!memberships[0]) {
     throw httpError(404, 'Membership not found');
