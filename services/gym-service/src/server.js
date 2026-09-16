@@ -40,6 +40,37 @@ function normalizeTemporaryVat(value) {
   };
 }
 
+function normalizeWebPromotion(value) {
+  const defaults = {
+    enabled: true,
+    productId: null,
+    kicker: 'Promo fitness',
+    title: 'Creatina Dragon Pharma en oferta.',
+    description: '300 g, 60 servicios y compra directa por WhatsApp.',
+    priceLabel: '$35',
+    badge: 'promo',
+    ctaLabel: 'Comprar creatina',
+    tags: ['5 g por toma', '60 servicios', 'stock limitado']
+  };
+  const settings = value && typeof value === 'object' ? value : {};
+  const productId = Number(settings.productId || 0);
+  const tags = Array.isArray(settings.tags)
+    ? settings.tags.map(tag => String(tag).trim()).filter(Boolean).slice(0, 4)
+    : defaults.tags;
+
+  return {
+    enabled: Boolean(settings.enabled ?? defaults.enabled),
+    productId: Number.isFinite(productId) && productId > 0 ? productId : null,
+    kicker: typeof settings.kicker === 'string' && settings.kicker.trim() ? settings.kicker.trim() : defaults.kicker,
+    title: typeof settings.title === 'string' && settings.title.trim() ? settings.title.trim() : defaults.title,
+    description: typeof settings.description === 'string' && settings.description.trim() ? settings.description.trim() : defaults.description,
+    priceLabel: typeof settings.priceLabel === 'string' && settings.priceLabel.trim() ? settings.priceLabel.trim() : defaults.priceLabel,
+    badge: typeof settings.badge === 'string' && settings.badge.trim() ? settings.badge.trim() : defaults.badge,
+    ctaLabel: typeof settings.ctaLabel === 'string' && settings.ctaLabel.trim() ? settings.ctaLabel.trim() : defaults.ctaLabel,
+    tags: tags.length ? tags : defaults.tags
+  };
+}
+
 function mapClient(row) {
   return {
     id: row.id,
@@ -1116,7 +1147,8 @@ app.get('/public/gym-settings', asyncHandler(async (req, res) => {
     address: settings.address || 'Quito, Ecuador',
     openingHours: settings.openingHours || 'Lunes a Viernes 08:00 - 21:00',
     schedules: Array.isArray(settings.schedules) ? settings.schedules : [],
-    temporaryVat: normalizeTemporaryVat(settings.temporaryVat)
+    temporaryVat: normalizeTemporaryVat(settings.temporaryVat),
+    webPromotion: normalizeWebPromotion(settings.webPromotion)
   });
 }));
 
