@@ -751,7 +751,7 @@ app.patch('/inventory/supplements/:id/stock', asyncHandler(async (req, res) => {
   res.json(await getSupplementOrFail(req.params.id));
 }));
 
-app.delete('/inventory/supplements/:id', asyncHandler(async (req, res) => {
+app.delete('/inventory/supplements/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const result = await query('DELETE FROM supplements WHERE id = $1 RETURNING id', [req.params.id]);
   if (!result.rows[0]) {
     throw httpError(404, 'Supplement not found');
@@ -994,7 +994,7 @@ app.patch('/inventory/machines/:id/status', asyncHandler(async (req, res) => {
   res.json(await getMachineOrFail(req.params.id));
 }));
 
-app.delete('/inventory/machines/:id', asyncHandler(async (req, res) => {
+app.delete('/inventory/machines/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const result = await query('DELETE FROM machines WHERE id = $1 RETURNING id', [req.params.id]);
   if (!result.rows[0]) {
     throw httpError(404, 'Machine not found');

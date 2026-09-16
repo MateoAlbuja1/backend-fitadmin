@@ -19,6 +19,21 @@ function mapUser(row) {
   };
 }
 
+function mapRegisteredUser(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    email: row.email,
+    fullName: row.full_name,
+    phone: row.phone,
+    role: row.role,
+    clientId: row.client_id,
+    active: row.active,
+    lastLoginAt: row.last_login_at,
+    createdAt: row.created_at
+  };
+}
+
 async function findUser(identifier) {
   const result = await query(
     `SELECT u.*, r.name AS role
@@ -29,6 +44,16 @@ async function findUser(identifier) {
     [identifier]
   );
   return result.rows[0] || null;
+}
+
+async function ensureSystemRoles() {
+  await query(
+    `INSERT INTO roles (name, description) VALUES
+       ('ADMIN', 'Acceso completo al sistema'),
+       ('RECEPCION', 'Gestion operativa diaria'),
+       ('CLIENTE', 'Acceso de cliente')
+     ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description`
+  );
 }
 
 async function ensureAdminUser() {
@@ -194,6 +219,50 @@ app.get('/auth/login-history', requireAuth, requireRoles('ADMIN'), asyncHandler(
   })));
 }));
 
+app.post('/auth/reception-users', requireAuth, requireRoles('ADMIN'), asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const username = String(body.username || '').trim().toLowerCase();
+  const email = String(body.email || '').trim().toLowerCase();
+  const password = String(body.password || '');
+  const fullName = String(body.fullName || body.name || '').trim();
+  const phone = String(body.phone || '').trim();
+
+  if (!username || !email || !password || !fullName) {
+    throw httpError(400, 'username, email, password and fullName are required');
+  }
+  if (password.length < 6) {
+    throw httpError(400, 'Password must have at least 6 characters');
+  }
+
+  const existing = await query(
+    `SELECT id, username, email
+     FROM users
+     WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)
+     LIMIT 1`,
+    [username, email]
+  );
+  if (existing.rows[0]) {
+    throw httpError(409, 'User already exists');
+  }
+
+  const roleResult = await query('SELECT id FROM roles WHERE name = $1', ['RECEPCION']);
+  const roleId = roleResult.rows[0]?.id;
+  if (!roleId) {
+    throw httpError(500, 'RECEPCION role does not exist');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const created = await query(
+    `INSERT INTO users (username, email, password_hash, full_name, phone, role_id, active)
+     VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+     RETURNING id, username, email, full_name, phone, client_id, active, last_login_at, created_at,
+               (SELECT name FROM roles WHERE id = role_id) AS role`,
+    [username, email, passwordHash, fullName, phone || null, roleId]
+  );
+
+  res.status(201).json(mapRegisteredUser(created.rows[0]));
+}));
+
 app.get('/auth/users', requireAuth, requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const result = await query(
     `SELECT u.id, u.username, u.email, u.full_name, u.phone, u.client_id, u.active,
@@ -203,18 +272,7 @@ app.get('/auth/users', requireAuth, requireRoles('ADMIN'), asyncHandler(async (r
      ORDER BY u.created_at DESC, u.id DESC`
   );
 
-  res.json(result.rows.map(row => ({
-    id: row.id,
-    username: row.username,
-    email: row.email,
-    fullName: row.full_name,
-    phone: row.phone,
-    role: row.role,
-    clientId: row.client_id,
-    active: row.active,
-    lastLoginAt: row.last_login_at,
-    createdAt: row.created_at
-  })));
+  res.json(result.rows.map(mapRegisteredUser));
 }));
 
 app.get('/auth/profile', requireAuth, asyncHandler(async (req, res) => {
@@ -280,6 +338,7 @@ app.use(errorHandler);
 
 async function start() {
   await waitForPostgres();
+  await ensureSystemRoles();
   await ensureAdminUser();
   const port = numberEnv('PORT', numberEnv('AUTH_SERVICE_PORT', 3001));
   app.listen(port, () => console.log(`[${serviceName}] listening on port ${port}`));

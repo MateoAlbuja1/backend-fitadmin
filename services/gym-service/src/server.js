@@ -611,7 +611,7 @@ app.put('/clients/:id', asyncHandler(async (req, res) => {
   res.json(await getClientOrFail(req.params.id));
 }));
 
-app.delete('/clients/:id', asyncHandler(async (req, res) => {
+app.delete('/clients/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const result = await query('DELETE FROM clients WHERE id = $1 RETURNING id', [req.params.id]);
   if (!result.rows[0]) {
     throw httpError(404, 'Client not found');
@@ -629,7 +629,7 @@ app.get('/public/plans', asyncHandler(async (req, res) => {
   res.json(result.rows.map(mapPlan));
 }));
 
-app.post('/plans', asyncHandler(async (req, res) => {
+app.post('/plans', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const body = req.body || {};
   if (!body.name || !body.durationDays) {
     throw httpError(400, 'name and durationDays are required');
@@ -643,7 +643,7 @@ app.post('/plans', asyncHandler(async (req, res) => {
   res.status(201).json(mapPlan(result.rows[0]));
 }));
 
-app.put('/plans/:id', asyncHandler(async (req, res) => {
+app.put('/plans/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const body = req.body || {};
   const result = await query(
     `UPDATE membership_plans SET
@@ -663,7 +663,7 @@ app.put('/plans/:id', asyncHandler(async (req, res) => {
   res.json(mapPlan(result.rows[0]));
 }));
 
-app.delete('/plans/:id', asyncHandler(async (req, res) => {
+app.delete('/plans/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const result = await query('DELETE FROM membership_plans WHERE id = $1 RETURNING id', [req.params.id]);
   if (!result.rows[0]) {
     throw httpError(404, 'Plan not found');
@@ -770,7 +770,7 @@ app.patch('/memberships/:id/renew', asyncHandler(async (req, res) => {
   res.json(memberships[0]);
 }));
 
-app.delete('/memberships/:id', asyncHandler(async (req, res) => {
+app.delete('/memberships/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const result = await query('DELETE FROM memberships WHERE id = $1 RETURNING id', [req.params.id]);
   if (!result.rows[0]) {
     throw httpError(404, 'Membership not found');
@@ -943,7 +943,7 @@ app.patch('/payments/:id/status', asyncHandler(async (req, res) => {
   res.json(payments[0]);
 }));
 
-app.delete('/payments/:id', asyncHandler(async (req, res) => {
+app.delete('/payments/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const result = await query('DELETE FROM payments WHERE id = $1 RETURNING id', [req.params.id]);
   if (!result.rows[0]) {
     throw httpError(404, 'Payment not found');

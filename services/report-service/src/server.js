@@ -1,5 +1,5 @@
 const { MongoClient, ObjectId } = require('mongodb');
-const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler, requireAnyRole } = require('../../../shared/http');
+const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler, requireAnyRole, requireRoles } = require('../../../shared/http');
 const { env, numberEnv } = require('../../../shared/config');
 const { query, waitForPostgres, asNumber } = require('../../../shared/postgres');
 const { formatDate, daysUntil } = require('../../../shared/format');
@@ -364,7 +364,7 @@ app.get('/health', (req, res) => {
 
 app.use(requireAnyRole('ADMIN', 'RECEPCION'));
 
-app.get('/reports', asyncHandler(async (req, res) => {
+app.get('/reports', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const db = await connectMongo();
   const queryFilter = {};
   if (req.query.type) {
@@ -374,7 +374,7 @@ app.get('/reports', asyncHandler(async (req, res) => {
   res.json(reports.map(toPublicDocument));
 }));
 
-app.post('/reports/generate', asyncHandler(async (req, res) => {
+app.post('/reports/generate', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const db = await connectMongo();
   const type = String(req.body?.type || 'summary').toLowerCase();
   const filters = parseDateFilters(req.body);
@@ -390,7 +390,7 @@ app.post('/reports/generate', asyncHandler(async (req, res) => {
   res.status(201).json(toPublicDocument({ _id: result.insertedId, ...document }));
 }));
 
-app.get('/reports/:id', asyncHandler(async (req, res) => {
+app.get('/reports/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
     throw httpError(400, 'Invalid report id');
   }
@@ -402,7 +402,7 @@ app.get('/reports/:id', asyncHandler(async (req, res) => {
   res.json(toPublicDocument(report));
 }));
 
-app.delete('/reports/:id', asyncHandler(async (req, res) => {
+app.delete('/reports/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
     throw httpError(400, 'Invalid report id');
   }
@@ -428,7 +428,7 @@ app.get('/alerts', asyncHandler(async (req, res) => {
   res.json(alerts.map(toPublicDocument));
 }));
 
-app.post('/alerts', asyncHandler(async (req, res) => {
+app.post('/alerts', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const db = await connectMongo();
   const body = req.body || {};
   if (!body.title) {
@@ -467,7 +467,7 @@ app.patch('/alerts/:id/read', asyncHandler(async (req, res) => {
   res.json(toPublicDocument(result));
 }));
 
-app.delete('/alerts/:id', asyncHandler(async (req, res) => {
+app.delete('/alerts/:id', requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
     throw httpError(400, 'Invalid alert id');
   }
