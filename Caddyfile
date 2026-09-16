@@ -1,0 +1,9 @@
+{$FRONTEND_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy frontend:4000
+}
+
+{$API_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy api-gateway:3000
+}

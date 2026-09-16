@@ -103,6 +103,19 @@ function requireRoles(...roles) {
   };
 }
 
+function requireAnyRole(...roles) {
+  const rolesMiddleware = requireRoles(...roles);
+  return (req, res, next) => {
+    requireAuth(req, res, error => {
+      if (error) {
+        next(error);
+        return;
+      }
+      rolesMiddleware(req, res, next);
+    });
+  };
+}
+
 function signToken(user) {
   return jwt.sign(
     {
@@ -123,6 +136,7 @@ module.exports = {
   errorHandler,
   httpError,
   notFoundHandler,
+  requireAnyRole,
   requireAuth,
   requireRoles,
   signToken

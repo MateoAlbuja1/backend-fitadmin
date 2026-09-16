@@ -1,11 +1,42 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: fitadmin-caddy
+    restart: unless-stopped
+    environment:
+      FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:?Define FRONTEND_DOMAIN in .env}
+      API_DOMAIN: ${API_DOMAIN:?Define API_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - api-gateway
+
+  frontend:
+    build:
+      context: ../fit-admin
+      dockerfile: Dockerfile
+    container_name: fitadmin-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      FITADMIN_API_URL: ${FITADMIN_API_URL:?Define FITADMIN_API_URL in .env}
+    expose:
+      - "4000"
+
   postgres:
     image: postgres:16-alpine
     container_name: fitadmin-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-fitadmin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fitadmin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-fitadmin}
     expose:
       - "5432"
@@ -24,7 +55,7 @@ services:
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-fitadmin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-fitadmin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Define MONGO_INITDB_ROOT_PASSWORD in .env}
       MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-fitadmin_mongo}
     expose:
       - "27017"
@@ -44,15 +75,15 @@ services:
     container_name: fitadmin-auth-service
     restart: unless-stopped
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${AUTH_SERVICE_PORT:-3001}
-      DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET in .env}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@wxgym.local}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Define ADMIN_PASSWORD in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Define ADMIN_EMAIL in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:?Define CORS_ORIGIN in .env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,11 +97,11 @@ services:
     container_name: fitadmin-gym-service
     restart: unless-stopped
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${GYM_SERVICE_PORT:-3002}
-      DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+      NODE_ENV: production
+      PORT: 3002
+      DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:?Define CORS_ORIGIN in .env}
       BACKUP_DIR: /app/backups
     depends_on:
       postgres:
@@ -87,11 +118,11 @@ services:
     container_name: fitadmin-inventory-service
     restart: unless-stopped
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${INVENTORY_SERVICE_PORT:-3003}
-      DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+      NODE_ENV: production
+      PORT: 3003
+      DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL in .env}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:?Define CORS_ORIGIN in .env}
       PAYPAL_MODE: ${PAYPAL_MODE:-sandbox}
       PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
       PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
@@ -109,13 +140,13 @@ services:
     container_name: fitadmin-report-service
     restart: unless-stopped
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${REPORT_SERVICE_PORT:-3004}
-      DATABASE_URL: ${DATABASE_URL:-postgres://fitadmin:fitadmin@postgres:5432/fitadmin}
-      MONGO_URL: ${MONGO_URL:-mongodb://fitadmin:fitadmin@mongo:27017/fitadmin_mongo?authSource=admin}
+      NODE_ENV: production
+      PORT: 3004
+      DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL in .env}
+      MONGO_URL: ${MONGO_URL:?Define MONGO_URL in .env}
       MONGO_DATABASE: ${MONGO_DATABASE:-fitadmin_mongo}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:?Define CORS_ORIGIN in .env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,21 +162,23 @@ services:
     container_name: fitadmin-api-gateway
     restart: unless-stopped
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
-      PORT: ${API_GATEWAY_PORT:-3000}
-      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:3001}
-      GYM_SERVICE_URL: ${GYM_SERVICE_URL:-http://gym-service:3002}
-      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://inventory-service:3003}
-      REPORT_SERVICE_URL: ${REPORT_SERVICE_URL:-http://report-service:3004}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://127.0.0.1:4200,http://localhost:8080,http://127.0.0.1:8080}
+      NODE_ENV: production
+      PORT: 3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      GYM_SERVICE_URL: http://gym-service:3002
+      INVENTORY_SERVICE_URL: http://inventory-service:3003
+      REPORT_SERVICE_URL: http://report-service:3004
+      CORS_ORIGIN: ${CORS_ORIGIN:?Define CORS_ORIGIN in .env}
     depends_on:
       - auth-service
       - gym-service
       - inventory-service
       - report-service
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
 
 volumes:
+  caddy_data:
+  caddy_config:
   postgres_data:
   mongo_data:

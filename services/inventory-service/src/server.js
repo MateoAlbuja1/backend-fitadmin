@@ -1,4 +1,4 @@
-const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler, requireAuth, requireRoles } = require('../../../shared/http');
+const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler, requireAnyRole, requireAuth, requireRoles } = require('../../../shared/http');
 const { env, numberEnv } = require('../../../shared/config');
 const { query, transaction, waitForPostgres, asNumber } = require('../../../shared/postgres');
 const { formatDate } = require('../../../shared/format');
@@ -628,6 +628,14 @@ app.get('/inventory/supplements/store', asyncHandler(async (req, res) => {
 app.get('/public/supplements', asyncHandler(async (req, res) => {
   res.json(await listSupplements("WHERE visible_in_store = TRUE AND stock > 0 AND status = 'Activo'"));
 }));
+
+app.use((req, res, next) => {
+  if (req.path.startsWith('/public/')) {
+    next();
+    return;
+  }
+  requireAnyRole('ADMIN', 'RECEPCION')(req, res, next);
+});
 
 app.get('/inventory/supplements', asyncHandler(async (req, res) => {
   const params = [];

@@ -4,13 +4,13 @@ Backend en arquitectura de microservicios para WX GYM.
 
 ## Arquitectura
 
-- `api-gateway`: entrada publica para Angular. Puerto `3000`.
-- `auth-service`: registro, login, JWT, bcrypt y perfil. Puerto `3001`.
-- `gym-service`: clientes, planes, membresias, asistencia, pagos, dashboard, configuracion y endpoints de cliente. Puerto `3002`.
-- `inventory-service`: suplementos, tienda publica y maquinas. Puerto `3003`.
-- `report-service`: reportes, alertas y documentos flexibles en MongoDB. Puerto `3004`.
-- `postgres`: datos relacionales. Puerto `5432`.
-- `mongo`: reportes, alertas, logs, historial, auditoria y eventos. Puerto `27017`.
+- `api-gateway`: entrada publica para Angular. Puerto publicado `3000`.
+- `auth-service`: registro, login, JWT, bcrypt y perfil. Puerto interno `3001`.
+- `gym-service`: clientes, planes, membresias, asistencia, pagos, dashboard, configuracion y endpoints de cliente. Puerto interno `3002`.
+- `inventory-service`: suplementos, tienda publica y maquinas. Puerto interno `3003`.
+- `report-service`: reportes, alertas y documentos flexibles en MongoDB. Puerto interno `3004`.
+- `postgres`: datos relacionales. Puerto interno `5432`.
+- `mongo`: reportes, alertas, logs, historial, auditoria y eventos. Puerto interno `27017`.
 
 ## Requisitos
 
@@ -43,6 +43,8 @@ cp .env.production.example .env
 ```
 
 Importante: el archivo `.env` no debe subirse a GitHub porque contiene credenciales reales.
+
+En produccion solo se debe publicar el `api-gateway` o el reverse proxy. PostgreSQL, MongoDB y los microservicios quedan expuestos solo dentro de la red de Docker.
 
 El usuario inicial se crea automaticamente al iniciar `auth-service`:
 
@@ -282,3 +284,61 @@ npm run start
 ```
 
 3. Entra al frontend y usa `admin / admin`.
+
+## Despliegue en servidor
+
+El despliegue productivo esperado usa dos repos clonados como carpetas hermanas:
+
+```text
+~/fitadmin/backend-fitadmin
+~/fitadmin/fit-admin
+```
+
+En un servidor Ubuntu con Docker instalado:
+
+```bash
+mkdir -p ~/fitadmin
+cd ~/fitadmin
+git clone https://github.com/MateoAlbuja1/backend-fitadmin.git
+git clone https://github.com/MateoAlbuja1/fit-admin.git
+```
+
+Configura variables reales:
+
+```bash
+cd ~/fitadmin/backend-fitadmin
+cp .env.production.example .env
+nano .env
+```
+
+Variables obligatorias antes de levantar:
+
+- `FRONTEND_DOMAIN`: dominio del frontend, por ejemplo `fitadmin.duckdns.org`.
+- `API_DOMAIN`: dominio del API, por ejemplo `fitadmin-api.duckdns.org`.
+- `FITADMIN_API_URL`: URL completa del API, por ejemplo `https://fitadmin-api.duckdns.org`.
+- `CORS_ORIGIN`: origen autorizado del frontend, por ejemplo `https://fitadmin.duckdns.org`.
+- `JWT_SECRET`, `ADMIN_PASSWORD`, `POSTGRES_PASSWORD`, `MONGO_INITDB_ROOT_PASSWORD`: secretos fuertes y unicos.
+- `DATABASE_URL` y `MONGO_URL`: deben usar las mismas contrasenas definidas arriba.
+
+Levanta todo con HTTPS automatico mediante Caddy:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Verifica estado:
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs -f caddy
+```
+
+En produccion Caddy publica solo `80` y `443`. El frontend, gateway, microservicios, PostgreSQL y MongoDB quedan internos en Docker.
+
+Para actualizar despues de hacer cambios:
+
+```bash
+cd ~/fitadmin/fit-admin && git pull
+cd ~/fitadmin/backend-fitadmin && git pull
+docker compose -f docker-compose.prod.yml up -d --build --force-recreate
+```

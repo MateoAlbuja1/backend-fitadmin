@@ -1,4 +1,4 @@
-const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler, requireAuth, requireRoles } = require('../../../shared/http');
+const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler, requireAnyRole, requireAuth, requireRoles } = require('../../../shared/http');
 const { numberEnv } = require('../../../shared/config');
 const { query, transaction, waitForPostgres, asNumber } = require('../../../shared/postgres');
 const { formatDate, formatTime, daysUntil, membershipStatus } = require('../../../shared/format');
@@ -485,6 +485,14 @@ async function latestBackupInfo() {
 
 app.get('/health', (req, res) => {
   res.json({ service: serviceName, status: 'ok' });
+});
+
+app.use((req, res, next) => {
+  if (req.path.startsWith('/public/') || req.path.startsWith('/client/')) {
+    next();
+    return;
+  }
+  requireAnyRole('ADMIN', 'RECEPCION')(req, res, next);
 });
 
 app.get('/clients', asyncHandler(async (req, res) => {

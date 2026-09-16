@@ -1,5 +1,5 @@
 const { MongoClient, ObjectId } = require('mongodb');
-const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler } = require('../../../shared/http');
+const { createApp, asyncHandler, errorHandler, httpError, notFoundHandler, requireAnyRole } = require('../../../shared/http');
 const { env, numberEnv } = require('../../../shared/config');
 const { query, waitForPostgres, asNumber } = require('../../../shared/postgres');
 const { formatDate, daysUntil } = require('../../../shared/format');
@@ -361,6 +361,8 @@ async function refreshAutomaticAlerts() {
 app.get('/health', (req, res) => {
   res.json({ service: serviceName, status: 'ok' });
 });
+
+app.use(requireAnyRole('ADMIN', 'RECEPCION'));
 
 app.get('/reports', asyncHandler(async (req, res) => {
   const db = await connectMongo();
