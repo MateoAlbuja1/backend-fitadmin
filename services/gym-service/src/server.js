@@ -40,6 +40,10 @@ function normalizeTemporaryVat(value) {
   };
 }
 
+function normalizeDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
 function normalizeWebPromotion(value) {
   const defaults = {
     enabled: true,
@@ -497,6 +501,26 @@ app.post('/clients', asyncHandler(async (req, res) => {
     throw httpError(400, 'name and document are required');
   }
 
+  const document = String(body.document).trim();
+  const phone = String(body.phone || '').trim();
+  const phoneDigits = normalizeDigits(phone);
+  const duplicates = await query(
+    `SELECT id, name, document, phone
+     FROM clients
+     WHERE LOWER(COALESCE(document, '')) = LOWER($1)
+        OR ($2 <> '' AND REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $2)
+     LIMIT 1`,
+    [document, phoneDigits.length >= 7 ? phoneDigits : '']
+  );
+  const duplicate = duplicates.rows[0];
+  if (duplicate) {
+    const duplicateDocument = String(duplicate.document || '').trim().toLowerCase() === document.toLowerCase();
+    throw httpError(409, duplicateDocument ? 'client document already exists' : 'client phone already exists', {
+      id: duplicate.id,
+      name: duplicate.name
+    });
+  }
+
   const clientId = await transaction(async client => {
     const result = await client.query(
       `INSERT INTO clients (name, document, phone, email, address, birth_date, status, joined_at, notes)
@@ -504,8 +528,8 @@ app.post('/clients', asyncHandler(async (req, res) => {
        RETURNING id, joined_at`,
       [
         String(body.name).trim(),
-        String(body.document).trim(),
-        body.phone || null,
+        document,
+        phone || null,
         body.email || null,
         body.address || null,
         body.birthDate || null,
