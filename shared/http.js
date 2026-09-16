@@ -22,8 +22,8 @@ function createApp(serviceName) {
     },
     credentials: true
   }));
-  app.use(express.json({ limit: '8mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '24mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '24mb' }));
   app.use(rateLimit({ windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false }));
   app.use((req, res, next) => {
     req.id = req.headers['x-request-id'] || crypto.randomUUID();
