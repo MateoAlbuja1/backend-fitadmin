@@ -13,7 +13,6 @@ function mapUser(row) {
     email: row.email,
     fullName: row.full_name,
     phone: row.phone,
-    document: row.document || null,
     role: row.role,
     clientId: row.client_id,
     active: row.active
@@ -27,7 +26,6 @@ function mapRegisteredUser(row) {
     email: row.email,
     fullName: row.full_name,
     phone: row.phone,
-    document: row.document || null,
     role: row.role,
     clientId: row.client_id,
     active: row.active,
@@ -122,13 +120,9 @@ app.post('/auth/register', asyncHandler(async (req, res) => {
   const password = String(body.password || '');
   const fullName = String(body.fullName || body.name || `${body.firstName || ''} ${body.lastName || ''}`).trim();
   const phone = String(body.phone || '').trim();
-  const document = String(body.document || body.cedula || '').replace(/\D/g, '').trim();
 
-  if (!username || !email || !password || !fullName || !document) {
-    throw httpError(400, 'username, email, password, fullName and document are required');
-  }
-  if (!/^\d{10}$/.test(document)) {
-    throw httpError(400, 'document must have 10 digits');
+  if (!username || !email || !password || !fullName) {
+    throw httpError(400, 'username, email, password and fullName are required');
   }
   if (password.length < 6) {
     throw httpError(400, 'Password must have at least 6 characters');
@@ -137,17 +131,6 @@ app.post('/auth/register', asyncHandler(async (req, res) => {
   const existing = await findUser(username);
   if (existing) {
     throw httpError(409, 'User already exists');
-  }
-
-  const existingDocument = await query(
-    `SELECT id
-     FROM users
-     WHERE document = $1
-     LIMIT 1`,
-    [document]
-  );
-  if (existingDocument.rows[0]) {
-    throw httpError(409, 'User document already exists');
   }
 
   const created = await transaction(async client => {
@@ -159,10 +142,10 @@ app.post('/auth/register', asyncHandler(async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const userResult = await client.query(
-      `INSERT INTO users (username, email, password_hash, full_name, phone, document, role_id, active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
-       RETURNING id, username, email, full_name, phone, document, client_id, active`,
-      [username, email, passwordHash, fullName, phone || null, document, roleId]
+      `INSERT INTO users (username, email, password_hash, full_name, phone, role_id, active)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+       RETURNING id, username, email, full_name, phone, client_id, active`,
+      [username, email, passwordHash, fullName, phone || null, roleId]
     );
 
     return { ...userResult.rows[0], role: 'CLIENTE' };
@@ -260,7 +243,7 @@ app.post('/auth/reception-users', requireAuth, requireRoles('ADMIN'), asyncHandl
   const created = await query(
     `INSERT INTO users (username, email, password_hash, full_name, phone, role_id, active)
      VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-     RETURNING id, username, email, full_name, phone, document, client_id, active, last_login_at, created_at,
+     RETURNING id, username, email, full_name, phone, client_id, active, last_login_at, created_at,
                (SELECT name FROM roles WHERE id = role_id) AS role`,
     [username, email, passwordHash, fullName, phone || null, roleId]
   );
@@ -270,7 +253,7 @@ app.post('/auth/reception-users', requireAuth, requireRoles('ADMIN'), asyncHandl
 
 app.get('/auth/users', requireAuth, requireRoles('ADMIN'), asyncHandler(async (req, res) => {
   const result = await query(
-    `SELECT u.id, u.username, u.email, u.full_name, u.phone, u.document, u.client_id, u.active,
+    `SELECT u.id, u.username, u.email, u.full_name, u.phone, u.client_id, u.active,
             u.last_login_at, u.created_at, r.name AS role
      FROM users u
      JOIN roles r ON r.id = u.role_id
@@ -282,7 +265,7 @@ app.get('/auth/users', requireAuth, requireRoles('ADMIN'), asyncHandler(async (r
 
 app.get('/auth/profile', requireAuth, asyncHandler(async (req, res) => {
   const result = await query(
-    `SELECT u.id, u.username, u.email, u.full_name, u.phone, u.document, u.client_id, u.active, r.name AS role,
+    `SELECT u.id, u.username, u.email, u.full_name, u.phone, u.client_id, u.active, r.name AS role,
             c.document AS client_document, c.address, c.birth_date, c.status AS client_status
      FROM users u
      JOIN roles r ON r.id = u.role_id
