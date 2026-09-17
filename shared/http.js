@@ -4,13 +4,15 @@ const express = require('express');
 const helmet = require('helmet');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
-const { env, listEnv } = require('./config');
+const { env, listEnv, numberEnv } = require('./config');
 
 function createApp(serviceName) {
   const app = express();
   const allowedOrigins = listEnv('CORS_ORIGIN', 'http://localhost:4200,http://127.0.0.1:4200');
+  const trustProxyHops = numberEnv('TRUST_PROXY_HOPS', 1);
 
   app.disable('x-powered-by');
+  app.set('trust proxy', trustProxyHops);
   app.use(helmet());
   app.use(cors({
     origin(origin, callback) {
