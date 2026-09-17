@@ -723,25 +723,68 @@ app.post('/memberships', asyncHandler(async (req, res) => {
 app.put('/memberships/:id', asyncHandler(async (req, res) => {
   const body = req.body || {};
   await transaction(async client => {
+    const current = await client.query(
+      `SELECT m.id, m.plan_id, m.start_date, p.duration_days, p.price
+       FROM memberships m
+       JOIN membership_plans p ON p.id = m.plan_id
+       WHERE m.id = $1
+       FOR UPDATE`,
+      [req.params.id]
+    );
+    if (!current.rows[0]) {
+      throw httpError(404, 'Membership not found');
+    }
+
     let planId = body.planId ?? null;
+    let selectedPlan = null;
     const planName = normalizePlanName(body.plan || body.planName);
     if (!planId && planName) {
-      const plan = await client.query('SELECT id FROM membership_plans WHERE name = $1 AND active = TRUE', [planName]);
-      planId = plan.rows[0]?.id ?? null;
+      const plan = await client.query('SELECT id, duration_days, price FROM membership_plans WHERE name = $1 AND active = TRUE', [planName]);
+      selectedPlan = plan.rows[0] || null;
+      planId = selectedPlan?.id ?? null;
+      if (!selectedPlan) {
+        throw httpError(400, 'Membership plan not found');
+      }
+    } else if (planId) {
+      const plan = await client.query('SELECT id, duration_days, price FROM membership_plans WHERE id = $1 AND active = TRUE', [planId]);
+      selectedPlan = plan.rows[0] || null;
+      if (!selectedPlan) {
+        throw httpError(400, 'Membership plan not found');
+      }
     }
+
+    const startDate = body.startDate || null;
+    const endDate = body.endDate || null;
+    const shouldRecalculateEndDate = body.recalculateEndDate === true || Boolean(planId && !endDate);
+    const durationDays = selectedPlan?.duration_days || current.rows[0].duration_days;
+    const price = body.price ?? (selectedPlan ? selectedPlan.price : null);
 
     await client.query(
       `UPDATE memberships SET
          client_id = COALESCE($1, client_id),
          plan_id = COALESCE($2, plan_id),
          start_date = COALESCE($3, start_date),
-         end_date = COALESCE($4, end_date),
+         end_date = CASE
+           WHEN $8::boolean THEN (COALESCE($3, start_date)::date + ($9::int || ' days')::interval)::date
+           ELSE COALESCE($4, end_date)
+         END,
          status = COALESCE($5, status),
          price = COALESCE($6, price),
          notes = COALESCE($7, notes),
          updated_at = NOW()
-       WHERE id = $8`,
-      [body.clientId ?? null, planId, body.startDate ?? null, body.endDate ?? null, body.status ?? null, body.price ?? null, body.notes ?? null, req.params.id]
+       WHERE id = $10`,
+      [
+        body.clientId ?? null,
+        planId,
+        startDate,
+        endDate,
+        body.status ?? null,
+        price,
+        body.notes ?? null,
+        shouldRecalculateEndDate,
+        durationDays,
+        req.params.id
+      ]
     );
   });
   const memberships = await listMemberships('WHERE m.id = $1', [req.params.id]);
@@ -752,16 +795,18 @@ app.put('/memberships/:id', asyncHandler(async (req, res) => {
 }));
 
 app.patch('/memberships/:id/renew', asyncHandler(async (req, res) => {
-  const durationDays = Number(req.body?.durationDays || 30);
   const result = await query(
-    `UPDATE memberships
+    `UPDATE memberships m
      SET start_date = CURRENT_DATE,
-         end_date = CURRENT_DATE + ($1 || ' days')::interval,
+         end_date = (CURRENT_DATE + (p.duration_days || ' days')::interval)::date,
          status = 'Activa',
+         price = p.price,
          updated_at = NOW()
-     WHERE id = $2
-     RETURNING id`,
-    [durationDays, req.params.id]
+     FROM membership_plans p
+     WHERE m.plan_id = p.id
+       AND m.id = $1
+     RETURNING m.id`,
+    [req.params.id]
   );
   if (!result.rows[0]) {
     throw httpError(404, 'Membership not found');
