@@ -1,12 +1,13 @@
+DROP VIEW IF EXISTS clientes_formulario;
+DROP VIEW IF EXISTS cuentas_y_clientes;
+
 CREATE OR REPLACE VIEW clientes_formulario AS
 SELECT
   c.id AS id_cliente,
   c.name AS nombre_completo,
-  c.document AS cedula,
+  (CASE WHEN c.document LIKE 'REG-%' THEN NULL ELSE c.document END)::VARCHAR(32) AS cedula,
   c.phone AS telefono,
   c.email AS correo,
-  c.address AS direccion,
-  c.birth_date AS fecha_nacimiento,
   COALESCE(plan_actual.name, 'Sin membresia') AS plan_inicial_o_actual,
   c.status AS estado,
   c.notes AS notas
@@ -30,7 +31,7 @@ SELECT
   u.active AS cuenta_activa,
   u.client_id AS id_cliente_vinculado,
   c.name AS nombre_cliente,
-  c.document AS cedula_cliente,
+  (CASE WHEN c.document LIKE 'REG-%' THEN NULL ELSE c.document END)::VARCHAR(32) AS cedula_cliente,
   c.phone AS telefono_cliente,
   u.created_at AS cuenta_creada_en,
   u.last_login_at AS ultimo_ingreso

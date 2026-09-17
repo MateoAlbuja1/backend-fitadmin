@@ -120,10 +120,13 @@ app.post('/auth/register', asyncHandler(async (req, res) => {
   const password = String(body.password || '');
   const fullName = String(body.fullName || body.name || `${body.firstName || ''} ${body.lastName || ''}`).trim();
   const phone = String(body.phone || '').trim();
-  const document = String(body.document || body.cedula || '').trim();
+  const document = String(body.document || body.cedula || '').replace(/\D/g, '').trim();
 
-  if (!username || !email || !password || !fullName) {
-    throw httpError(400, 'username, email, password and fullName are required');
+  if (!username || !email || !password || !fullName || !document) {
+    throw httpError(400, 'username, email, password, fullName and document are required');
+  }
+  if (!/^\d{10}$/.test(document)) {
+    throw httpError(400, 'document must have 10 digits');
   }
   if (password.length < 6) {
     throw httpError(400, 'Password must have at least 6 characters');
@@ -146,10 +149,11 @@ app.post('/auth/register', asyncHandler(async (req, res) => {
        VALUES ($1, $2, $3, $4, 'Activo', CURRENT_DATE, 'Registro desde portal publico')
        ON CONFLICT (email) DO UPDATE SET
          name = EXCLUDED.name,
+         document = EXCLUDED.document,
          phone = EXCLUDED.phone,
          updated_at = NOW()
        RETURNING id`,
-      [fullName, document || `REG-${Date.now()}`, phone || null, email]
+      [fullName, document, phone || null, email]
     );
 
     const passwordHash = await bcrypt.hash(password, 10);
