@@ -28,6 +28,40 @@ function normalizePlanName(value) {
   return names[normalized] || null;
 }
 
+function normalizeDateInput(value) {
+  if (!value) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) {
+    return iso[1];
+  }
+
+  const localized = raw.match(/^(\d{1,2})\s+([A-Za-zÁÉÍÓÚáéíóú]{3})\s+(\d{4})$/);
+  if (!localized) {
+    return null;
+  }
+
+  const months = {
+    ene: '01',
+    feb: '02',
+    mar: '03',
+    abr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    ago: '08',
+    sep: '09',
+    oct: '10',
+    nov: '11',
+    dic: '12'
+  };
+  const month = months[localized[2].toLowerCase()];
+  return month ? `${localized[3]}-${month}-${localized[1].padStart(2, '0')}` : null;
+}
+
 function normalizeTemporaryVat(value) {
   const settings = value && typeof value === 'object' ? value : {};
   const rate = Number(settings.rate ?? 15);
@@ -753,9 +787,10 @@ app.put('/memberships/:id', asyncHandler(async (req, res) => {
       }
     }
 
-    const startDate = body.startDate || null;
-    const endDate = body.endDate || null;
-    const shouldRecalculateEndDate = body.recalculateEndDate === true || Boolean(planId && !endDate);
+    const startDate = normalizeDateInput(body.startDate);
+    const endDate = normalizeDateInput(body.endDate);
+    const planChanged = Boolean(planId && Number(planId) !== Number(current.rows[0].plan_id));
+    const shouldRecalculateEndDate = body.recalculateEndDate === true || planChanged || Boolean(planId && !endDate);
     const durationDays = selectedPlan?.duration_days || current.rows[0].duration_days;
     const price = body.price ?? (selectedPlan ? selectedPlan.price : null);
 
