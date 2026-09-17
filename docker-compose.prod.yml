@@ -6,6 +6,8 @@ services:
     environment:
       FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:?Define FRONTEND_DOMAIN in .env}
       API_DOMAIN: ${API_DOMAIN:?Define API_DOMAIN in .env}
+      DB_DOMAIN: ${DB_DOMAIN:?Define DB_DOMAIN in .env}
+      DB_BASIC_AUTH_HASH: ${DB_BASIC_AUTH_HASH:?Define DB_BASIC_AUTH_HASH in .env}
     ports:
       - "80:80"
       - "443:443"
@@ -16,6 +18,7 @@ services:
     depends_on:
       - frontend
       - api-gateway
+      - adminer
 
   frontend:
     build:
@@ -48,6 +51,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 8
+
+  adminer:
+    image: adminer:4
+    container_name: fitadmin-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: pepa-linha
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
 
   mongo:
     image: mongo:7
