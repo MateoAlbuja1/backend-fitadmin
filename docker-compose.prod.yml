@@ -7,6 +7,7 @@ services:
       FRONTEND_DOMAIN: ${FRONTEND_DOMAIN:?Define FRONTEND_DOMAIN in .env}
       API_DOMAIN: ${API_DOMAIN:?Define API_DOMAIN in .env}
       DB_DOMAIN: ${DB_DOMAIN:?Define DB_DOMAIN in .env}
+      MONGO_EXPRESS_DOMAIN: ${MONGO_EXPRESS_DOMAIN:?Define MONGO_EXPRESS_DOMAIN in .env}
       DB_BASIC_AUTH_HASH: ${DB_BASIC_AUTH_HASH:?Define DB_BASIC_AUTH_HASH in .env}
     ports:
       - "80:80"
@@ -19,6 +20,7 @@ services:
       - frontend
       - api-gateway
       - adminer
+      - mongo-express
 
   frontend:
     build:
@@ -83,6 +85,22 @@ services:
       interval: 10s
       timeout: 5s
       retries: 8
+
+  mongo-express:
+    image: mongo-express:1.0.2-20-alpine3.19
+    container_name: fitadmin-mongo-express
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongo_viewer:${MONGO_VIEWER_PASSWORD:?Define MONGO_VIEWER_PASSWORD in .env}@mongo:27017/${MONGO_DATABASE:-fitadmin_mongo}?authSource=${MONGO_DATABASE:-fitadmin_mongo}
+      ME_CONFIG_BASICAUTH: "false"
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "false"
+      ME_CONFIG_OPTIONS_READONLY: "true"
+      ME_CONFIG_OPTIONS_NO_DELETE: "true"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    expose:
+      - "8081"
 
   auth-service:
     build:
